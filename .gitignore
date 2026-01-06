@@ -1,1 +1,31 @@
-data/Songs.json
+# Данные (опционально - раскомментируйте если не хотите коммитить)
+Data/Songs.json
+
+# Создаваемые файлы
+Data/songs_index.faiss
+Data/songs_metadata.json
+
+# Переменные окружения
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
