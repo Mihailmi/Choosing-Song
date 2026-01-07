@@ -7,7 +7,7 @@ import json
 import os
 import numpy as np
 import faiss
-from openai import OpenAI
+import requests
 from typing import List, Dict, Any
 
 
@@ -19,11 +19,16 @@ class EmbeddingsManager:
         Инициализация менеджера embeddings.
         
         Args:
-            api_key: OpenAI API ключ. Если не указан, берётся из переменной окружения OPENAI_API_KEY.
+            api_key: Google API ключ. Если не указан, берётся из переменной окружения GOOGLE_API_KEY.
         """
-        self.client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
-        self.model = "text-embedding-3-large"
-        self.dimension = 3072  # Размерность для text-embedding-3-large
+        self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
+        if not self.api_key:
+            raise ValueError("GOOGLE_API_KEY не установлен")
+
+        # Используем REST API напрямую
+        self.api_url = "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent"
+        self.dimension = 768  # Размерность для text-embedding-004
+        
         self.index = None
         self.vectors_metadata = []
         
@@ -43,8 +48,27 @@ class EmbeddingsManager:
             text_parts.append(f"Название: {song['title']}")
         if song.get("artist"):
             text_parts.append(f"Исполнитель: {song['artist']}")
+        
+        # Обработка lyrics - может быть строкой или массивом строк
         if song.get("lyrics"):
-            text_parts.append(f"Текст: {song['lyrics']}")
+            lyrics = song["lyrics"]
+            if isinstance(lyrics, list):
+                lyrics = "\n".join(lyrics)
+            text_parts.append(f"Текст: {lyrics}")
+        
+        # Дополнительные поля, которые могут быть полезны
+        if song.get("key"):
+            text_parts.append(f"Тональность: {song['key']}")
+        if song.get("notes"):
+            notes = song["notes"]
+            if isinstance(notes, str):
+                text_parts.append(f"Заметки: {notes}")
+        if song.get("example"):
+            example = song["example"]
+            if isinstance(example, str):
+                text_parts.append(f"Пример: {example}")
+        
+        # Стандартные поля (если есть)
         if song.get("themes"):
             themes = song["themes"] if isinstance(song["themes"], list) else [song["themes"]]
             text_parts.append(f"Темы: {', '.join(themes)}")
@@ -72,14 +96,24 @@ class EmbeddingsManager:
             # Подготовка текста
             text = self._prepare_song_text(song)
             
-            # Создание embedding
+            # Создание embedding через REST API
             try:
-                response = self.client.embeddings.create(
-                    model=self.model,
-                    input=text
-                )
-                
-                embedding = response.data[0].embedding
+                headers = {
+                    'Content-Type': 'application/json',
+                    'X-goog-api-key': self.api_key
+                }
+                payload = {
+                    "model": "models/text-embedding-004",
+                    "content": {
+                        "parts": [{"text": text}]
+                    }
+                }
+                response = requests.post(self.api_url, headers=headers, json=payload)
+                if response.status_code != 200:
+                    error_detail = response.text
+                    raise Exception(f"{response.status_code} {error_detail}")
+                result = response.json()
+                embedding = result["embedding"]["values"]
                 
                 vectors.append({
                     "id": song.get("id", idx),
@@ -173,10 +207,19 @@ class EmbeddingsManager:
         Returns:
             NumPy массив с embedding
         """
-        response = self.client.embeddings.create(
-            model=self.model,
-            input=query
-        )
-        
-        return np.array([response.data[0].embedding]).astype("float32")
+        headers = {
+            'Content-Type': 'application/json',
+            'X-goog-api-key': self.api_key
+        }
+        payload = {
+            "model": "models/text-embedding-004",
+            "content": {
+                "parts": [{"text": query}]
+            }
+        }
+        response = requests.post(self.api_url, headers=headers, json=payload)
+        response.raise_for_status()
+        result = response.json()
+        embedding = result["embedding"]["values"]
+        return np.array([embedding]).astype("float32")
 

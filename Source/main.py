@@ -38,6 +38,9 @@ def print_song_info(song: dict):
         print(f"😊 Настроение: {', '.join(mood)}")
     if song.get("lyrics"):
         lyrics = song["lyrics"]
+        # Обработка lyrics - может быть строкой или массивом
+        if isinstance(lyrics, list):
+            lyrics = "\n".join(lyrics)
         if len(lyrics) > 200:
             lyrics = lyrics[:200] + "..."
         print(f"\n📝 Текст:\n{lyrics}")

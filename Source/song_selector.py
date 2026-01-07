@@ -41,6 +41,9 @@ class SongSelector:
             info += f" | Исполнитель: {song['artist']}"
         if song.get("lyrics"):
             lyrics = song["lyrics"]
+            # Обработка lyrics - может быть строкой или массивом
+            if isinstance(lyrics, list):
+                lyrics = "\n".join(lyrics)
             # Ограничиваем длину текста
             if len(lyrics) > 300:
                 lyrics = lyrics[:300] + "..."
