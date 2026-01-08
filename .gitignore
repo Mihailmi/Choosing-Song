@@ -5,6 +5,7 @@ Data/Songs.json
 # Data/songs_index.faiss
 # Data/songs_metadata.json
 
+GIT_COMMANDS.md
 # Переменные окружения
 .env
 

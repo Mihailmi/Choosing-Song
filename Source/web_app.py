@@ -90,7 +90,23 @@ def search_songs():
             })
         
         # Выбор лучшей песни через LLM
-        result = selector.choose_best(query, candidates)
+        try:
+            result = selector.choose_best(query, candidates)
+        except Exception as e:
+            error_msg = str(e)
+            # Если все модели перегружены, возвращаем кандидатов без выбранной песни
+            if "недоступны" in error_msg or "overloaded" in error_msg.lower():
+                print(f"⚠️ Все модели перегружены, возвращаем кандидатов без выбора: {e}")
+                return jsonify({
+                    'candidates': candidates,
+                    'selected': None,
+                    'reasoning': None,
+                    'message': 'Модели временно перегружены. Показаны найденные кандидаты, но выбор лучшей песни недоступен. Попробуйте позже.',
+                    'warning': True
+                })
+            else:
+                # Другие ошибки пробрасываем
+                raise
         
         # Форматирование ответа
         response = {

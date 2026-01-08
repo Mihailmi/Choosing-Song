@@ -104,6 +104,9 @@ header h1 {
     cursor: pointer;
     transition: all 0.3s ease;
     white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    min-height: 44px; /* Минимальный размер для удобного нажатия на мобильных */
 }
 
 .search-btn:hover:not(:disabled) {
@@ -143,6 +146,12 @@ header h1 {
     border: 1px solid rgba(99, 102, 241, 0.3);
 }
 
+.status-message.warning {
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--warning-color);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
 .results-section {
     max-width: 1200px;
     margin: 40px auto 0;
@@ -151,9 +160,171 @@ header h1 {
     gap: 30px;
 }
 
+/* Мобильная адаптивность */
 @media (max-width: 968px) {
     .results-section {
         grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    body {
+        padding: 10px;
+    }
+    
+    header {
+        margin-bottom: 30px;
+        padding: 20px 0;
+    }
+    
+    header h1 {
+        font-size: 1.8rem;
+    }
+    
+    .subtitle {
+        font-size: 0.95rem;
+    }
+    
+    .input-group {
+        flex-direction: column;
+        padding: 12px;
+        gap: 12px;
+    }
+    
+    #queryInput {
+        padding: 12px 15px;
+        font-size: 16px; /* Предотвращает зум на iOS */
+        width: 100%;
+    }
+    
+    .search-btn {
+        width: 100%;
+        padding: 12px 20px;
+        font-size: 1rem;
+    }
+    
+    .results-section {
+        gap: 20px;
+        margin-top: 30px;
+    }
+    
+    .candidates-section,
+    .selected-section {
+        padding: 15px;
+    }
+    
+    .candidates-section h2,
+    .selected-section h2 {
+        font-size: 1.2rem;
+        margin-bottom: 15px;
+    }
+    
+    .candidates-list {
+        gap: 12px;
+    }
+    
+    .candidate-card {
+        padding: 15px;
+    }
+    
+    .candidate-card h3 {
+        font-size: 1.1rem;
+        margin-bottom: 6px;
+    }
+    
+    .candidate-card .artist {
+        font-size: 0.9rem;
+        margin-bottom: 8px;
+    }
+    
+    .candidate-card .lyrics-preview {
+        font-size: 0.85rem;
+        margin-top: 8px;
+    }
+    
+    .candidate-card .lyrics-full {
+        font-size: 0.9rem;
+        padding: 12px;
+        line-height: 1.6;
+    }
+    
+    .candidate-card .toggle-lyrics-btn {
+        width: 100%;
+        padding: 10px;
+        font-size: 0.9rem;
+        margin-top: 12px;
+    }
+    
+    .selected-song {
+        padding: 20px;
+    }
+    
+    .selected-song h3 {
+        font-size: 1.3rem;
+    }
+    
+    .selected-song .lyrics {
+        font-size: 0.95rem;
+        padding: 15px;
+        line-height: 1.6;
+    }
+    
+    .reasoning-section {
+        padding: 15px;
+    }
+    
+    .reasoning-section h3 {
+        font-size: 1.1rem;
+    }
+    
+    .reasoning-text {
+        font-size: 0.95rem;
+    }
+    
+    footer {
+        margin-top: 40px;
+        padding: 20px 0;
+        font-size: 0.85rem;
+    }
+}
+
+@media (max-width: 480px) {
+    header h1 {
+        font-size: 1.5rem;
+    }
+    
+    .subtitle {
+        font-size: 0.9rem;
+    }
+    
+    .candidates-section,
+    .selected-section {
+        padding: 12px;
+    }
+    
+    .candidate-card {
+        padding: 12px;
+    }
+    
+    .selected-song {
+        padding: 15px;
+    }
+    
+    .selected-song .lyrics {
+        font-size: 0.9rem;
+        padding: 12px;
+    }
+    
+    .candidate-card .lyrics-full {
+        font-size: 0.9rem;
+        padding: 12px;
+    }
+    
+    .candidate-card .toggle-lyrics-btn {
+        width: 100%;
+        padding: 10px;
+        font-size: 0.9rem;
+        margin-top: 12px;
     }
 }
 
@@ -185,6 +356,7 @@ header h1 {
     padding: 20px;
     transition: all 0.3s ease;
     cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .candidate-card:hover {
@@ -232,6 +404,40 @@ header h1 {
     margin-top: 10px;
     font-style: italic;
     line-height: 1.5;
+}
+
+.candidate-card .lyrics-full {
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    line-height: 1.8;
+    margin-top: 15px;
+    padding: 15px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 8px;
+    white-space: pre-wrap;
+    border-top: 1px solid var(--border-color);
+    animation: fadeIn 0.3s ease-out;
+}
+
+.candidate-card .toggle-lyrics-btn {
+    background: rgba(99, 102, 241, 0.2);
+    color: var(--primary-color);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    margin-top: 10px;
+    transition: all 0.3s ease;
+    display: inline-block;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    min-height: 44px; /* Минимальный размер для удобного нажатия на мобильных */
+}
+
+.candidate-card .toggle-lyrics-btn:hover {
+    background: rgba(99, 102, 241, 0.3);
+    border-color: var(--primary-color);
 }
 
 .selected-song {

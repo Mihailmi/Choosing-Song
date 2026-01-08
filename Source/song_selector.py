@@ -5,13 +5,14 @@
 
 import os
 import requests
+import time
 from typing import List, Dict, Any
 
 
 class SongSelector:
     """Класс для выбора лучшей песни из кандидатов через LLM."""
     
-    def __init__(self, api_key: str = None, model: str = "gemini-2.5-flash", fallback_models: List[str] = None):
+    def __init__(self, api_key: str = None, model: str = "gemini-2.5-flash", fallback_models: List[str] = None, max_retries: int = 2):
         """
         Инициализация селектора песен.
         
@@ -19,18 +20,22 @@ class SongSelector:
             api_key: Google API ключ. Если не указан, берётся из переменной окружения GOOGLE_API_KEY.
             model: Модель LLM для использования (по умолчанию gemini-2.5-flash)
             fallback_models: Список резервных моделей для автоматического переключения при ошибках
+            max_retries: Максимальное количество повторных попыток для одной модели при перегрузке
         """
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
         if not self.api_key:
             raise ValueError("GOOGLE_API_KEY не установлен")
         
         self.model = model
+        self.max_retries = max_retries
         # Резервные модели по умолчанию (от быстрых к более мощным)
         if fallback_models is None:
             self.fallback_models = [
                 "gemini-2.5-flash",
                 "gemini-2.0-flash",
+                "gemini-1.5-flash",
                 "gemini-2.5-pro",
+                "gemini-1.5-pro",
                 "gemini-flash-latest",
                 "gemini-pro-latest"
             ]
@@ -80,9 +85,59 @@ class SongSelector:
         
         return info
     
+    def _is_overload_error(self, response: requests.Response) -> bool:
+        """
+        Проверяет, является ли ошибка ошибкой перегрузки модели.
+        
+        Args:
+            response: Ответ от API
+            
+        Returns:
+            True, если это ошибка перегрузки
+        """
+        error_text = response.text.lower()
+        status_code = response.status_code
+        
+        # Проверяем статус коды, указывающие на перегрузку
+        is_overload_status = status_code in [429, 503, 500]
+        
+        # Проверяем текст ошибки
+        is_overload_text = (
+            "overloaded" in error_text or
+            "overload" in error_text or
+            "too many requests" in error_text or
+            "rate limit" in error_text or
+            "service unavailable" in error_text or
+            "temporarily unavailable" in error_text or
+            "try again later" in error_text
+        )
+        
+        return is_overload_status or is_overload_text
+    
+    def _is_model_error(self, response: requests.Response) -> bool:
+        """
+        Проверяет, является ли ошибка ошибкой модели (не найдена, не поддерживается).
+        
+        Args:
+            response: Ответ от API
+            
+        Returns:
+            True, если это ошибка модели
+        """
+        error_text = response.text.lower()
+        status_code = response.status_code
+        
+        return (
+            status_code == 404 or
+            "not found" in error_text or
+            "not supported" in error_text or
+            ("model" in error_text and ("not found" in error_text or "not supported" in error_text))
+        )
+    
     def _try_request_with_fallback(self, payload: Dict[str, Any], headers: Dict[str, str]) -> Dict[str, Any]:
         """
         Пытается выполнить запрос к API, переключаясь между моделями при ошибках.
+        При перегрузке модели делает несколько попыток с задержкой перед переключением.
         
         Args:
             payload: Тело запроса
@@ -97,37 +152,54 @@ class SongSelector:
         last_error = None
         
         for model_name in self.models_to_try:
-            try:
-                api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
-                response = requests.post(api_url, headers=headers, json=payload)
-                
-                if response.status_code == 200:
-                    # Если это не первая модель, сообщим о переключении
-                    if model_name != self.model:
-                        print(f"  ⚠️  Переключился на модель: {model_name}")
-                    return response.json()
-                else:
-                    # Проверяем, является ли это ошибкой модели (404, 400 с упоминанием модели)
-                    error_text = response.text.lower()
-                    is_model_error = (
-                        response.status_code == 404 or
-                        "not found" in error_text or
-                        "not supported" in error_text or
-                        ("model" in error_text and ("not found" in error_text or "not supported" in error_text))
-                    )
+            # Пытаемся использовать текущую модель с повторными попытками при перегрузке
+            for retry in range(self.max_retries + 1):
+                try:
+                    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+                    response = requests.post(api_url, headers=headers, json=payload)
                     
-                    if is_model_error:
-                        # Это ошибка модели, пробуем следующую
+                    if response.status_code == 200:
+                        # Успешный запрос
+                        if model_name != self.model:
+                            print(f"  ⚠️  Переключился на модель: {model_name}")
+                        return response.json()
+                    
+                    # Обработка ошибок
+                    if self._is_overload_error(response):
+                        # Модель перегружена - делаем повторную попытку с задержкой
+                        if retry < self.max_retries:
+                            wait_time = (retry + 1) * 2  # Экспоненциальная задержка: 2, 4, 6 секунд
+                            print(f"  ⏳ Модель {model_name} перегружена, повторная попытка через {wait_time} сек... (попытка {retry + 1}/{self.max_retries})")
+                            time.sleep(wait_time)
+                            continue
+                        else:
+                            # Исчерпаны попытки для этой модели, пробуем следующую
+                            last_error = f"{response.status_code}: {response.text[:200]}"
+                            print(f"  ⚠️  Модель {model_name} перегружена после {self.max_retries + 1} попыток, пробуем следующую...")
+                            break
+                    
+                    elif self._is_model_error(response):
+                        # Ошибка модели (не найдена, не поддерживается) - сразу пробуем следующую
                         last_error = f"{response.status_code}: {response.text[:200]}"
-                        continue
+                        print(f"  ⚠️  Модель {model_name} недоступна, пробуем следующую...")
+                        break
+                    
                     else:
                         # Другая ошибка (квота, авторизация и т.д.) - пробрасываем
-                        raise Exception(f"{response.status_code}: {response.text}")
+                        error_msg = response.text[:500] if len(response.text) > 500 else response.text
+                        raise Exception(f"{response.status_code}: {error_msg}")
                         
-            except requests.exceptions.RequestException as e:
-                # Сетевая ошибка - пробуем следующую модель
-                last_error = str(e)
-                continue
+                except requests.exceptions.RequestException as e:
+                    # Сетевая ошибка
+                    if retry < self.max_retries:
+                        wait_time = (retry + 1) * 1
+                        print(f"  ⏳ Сетевая ошибка для {model_name}, повторная попытка через {wait_time} сек...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        last_error = str(e)
+                        print(f"  ⚠️  Сетевая ошибка для {model_name}, пробуем следующую модель...")
+                        break
         
         # Все модели не сработали
         raise Exception(f"Все модели недоступны. Последняя ошибка: {last_error}")

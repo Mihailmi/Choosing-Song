@@ -46,7 +46,12 @@ async function searchSongs(query) {
         
         if (data.candidates && data.candidates.length > 0) {
             displayResults(data);
-            showStatus('Поиск выполнен успешно!', 'success');
+            // Показываем предупреждение, если модели перегружены
+            if (data.warning) {
+                showStatus(data.message || 'Модели временно перегружены', 'warning');
+            } else {
+                showStatus('Поиск выполнен успешно!', 'success');
+            }
         } else {
             showStatus(data.message || 'Не найдено подходящих песен', 'info');
         }
@@ -73,6 +78,14 @@ function displayResults(data) {
     // Отображаем выбранную песню
     if (selected) {
         selectedSong.innerHTML = createSelectedSongHTML(selected);
+    } else {
+        // Если песня не выбрана (модели перегружены), показываем сообщение
+        selectedSong.innerHTML = `
+            <div style="text-align: center; padding: 20px; color: var(--text-secondary);">
+                <p style="font-size: 1.1rem; margin-bottom: 10px;">⚠️ Автоматический выбор недоступен</p>
+                <p style="font-size: 0.95rem;">Модели временно перегружены. Пожалуйста, выберите песню из списка кандидатов вручную.</p>
+            </div>
+        `;
     }
     
     // Отображаем объяснение
@@ -110,14 +123,25 @@ function createCandidateCard(song, index, selectedSong) {
         moodHTML = `<div class="mood">${moods.map(m => `<span class="tag">${escapeHtml(m)}</span>`).join('')}</div>`;
     }
     
+    let lyricsHTML = '';
     let lyricsPreview = '';
+    let hasFullLyrics = false;
+    
     if (song.lyrics) {
         let lyrics = Array.isArray(song.lyrics) ? song.lyrics.join('\n') : song.lyrics;
-        if (lyrics.length > 150) {
-            lyrics = lyrics.substring(0, 150) + '...';
+        hasFullLyrics = lyrics.length > 150;
+        
+        if (hasFullLyrics) {
+            lyricsPreview = `<div class="lyrics-preview">${escapeHtml(lyrics.substring(0, 150))}...</div>`;
+            lyricsHTML = `<div class="lyrics-full" style="display: none;">${escapeHtml(lyrics)}</div>`;
+        } else {
+            lyricsPreview = `<div class="lyrics-preview">${escapeHtml(lyrics)}</div>`;
         }
-        lyricsPreview = `<div class="lyrics-preview">${escapeHtml(lyrics)}</div>`;
     }
+    
+    const toggleButtonHTML = hasFullLyrics 
+        ? `<button class="toggle-lyrics-btn" onclick="toggleLyrics(this)">📝 Показать полный текст</button>`
+        : '';
     
     card.innerHTML = `
         <h3>${index}. ${escapeHtml(title)}</h3>
@@ -125,9 +149,28 @@ function createCandidateCard(song, index, selectedSong) {
         ${themesHTML}
         ${moodHTML}
         ${lyricsPreview}
+        ${lyricsHTML}
+        ${toggleButtonHTML}
     `;
     
     return card;
+}
+
+// Функция переключения отображения полного текста
+function toggleLyrics(button) {
+    const card = button.closest('.candidate-card');
+    const lyricsFull = card.querySelector('.lyrics-full');
+    const lyricsPreview = card.querySelector('.lyrics-preview');
+    
+    if (lyricsFull && lyricsFull.style.display === 'none') {
+        lyricsFull.style.display = 'block';
+        lyricsPreview.style.display = 'none';
+        button.textContent = '📝 Скрыть текст';
+    } else {
+        lyricsFull.style.display = 'none';
+        lyricsPreview.style.display = 'block';
+        button.textContent = '📝 Показать полный текст';
+    }
 }
 
 // Создание HTML для выбранной песни
