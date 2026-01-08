@@ -218,7 +218,9 @@ class EmbeddingsManager:
             }
         }
         response = requests.post(self.api_url, headers=headers, json=payload)
-        response.raise_for_status()
+        if response.status_code != 200:
+            error_detail = response.text
+            raise Exception(f"Embedding API error {response.status_code}: {error_detail}")
         result = response.json()
         embedding = result["embedding"]["values"]
         return np.array([embedding]).astype("float32")

@@ -62,10 +62,11 @@ def main():
         sys.exit(1)
     
     # Проверка API ключа
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        print("❌ OPENAI_API_KEY не установлен!")
-        print("Создайте файл .env и добавьте: OPENAI_API_KEY=your_key_here")
+    google_api_key = os.getenv("GOOGLE_API_KEY")
+    
+    if not google_api_key:
+        print("❌ GOOGLE_API_KEY не установлен!")
+        print("Создайте файл .env и добавьте: GOOGLE_API_KEY=your_key_here")
         sys.exit(1)
     
     print("🎵 Система выбора песен на основе RAG")
@@ -73,11 +74,11 @@ def main():
     
     # Инициализация компонентов
     print("\n🔧 Загрузка индекса...")
-    embeddings_manager = EmbeddingsManager(api_key=api_key)
+    embeddings_manager = EmbeddingsManager(api_key=google_api_key)
     embeddings_manager.load_index(str(index_path), str(metadata_path))
     
     search_engine = SongSearch(embeddings_manager)
-    selector = SongSelector(api_key=api_key)
+    selector = SongSelector(api_key=google_api_key)
     
     print("✅ Система готова к работе!\n")
     

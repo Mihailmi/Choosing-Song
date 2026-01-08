@@ -4,23 +4,42 @@
 """
 
 import os
-from openai import OpenAI
+import requests
 from typing import List, Dict, Any
 
 
 class SongSelector:
     """Класс для выбора лучшей песни из кандидатов через LLM."""
     
-    def __init__(self, api_key: str = None, model: str = "gpt-4o-mini"):
+    def __init__(self, api_key: str = None, model: str = "gemini-2.5-flash", fallback_models: List[str] = None):
         """
         Инициализация селектора песен.
         
         Args:
-            api_key: OpenAI API ключ. Если не указан, берётся из переменной окружения.
-            model: Модель LLM для использования (по умолчанию gpt-4o-mini)
+            api_key: Google API ключ. Если не указан, берётся из переменной окружения GOOGLE_API_KEY.
+            model: Модель LLM для использования (по умолчанию gemini-2.5-flash)
+            fallback_models: Список резервных моделей для автоматического переключения при ошибках
         """
-        self.client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
+        self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
+        if not self.api_key:
+            raise ValueError("GOOGLE_API_KEY не установлен")
+        
         self.model = model
+        # Резервные модели по умолчанию (от быстрых к более мощным)
+        if fallback_models is None:
+            self.fallback_models = [
+                "gemini-2.5-flash",
+                "gemini-2.0-flash",
+                "gemini-2.5-pro",
+                "gemini-flash-latest",
+                "gemini-pro-latest"
+            ]
+        else:
+            self.fallback_models = fallback_models
+        
+        # Убедимся, что основная модель в списке для попыток
+        self.models_to_try = [self.model] + [m for m in self.fallback_models if m != self.model]
+        self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     
     def _format_song_info(self, song: Dict[str, Any], index: int) -> str:
         """
@@ -60,6 +79,58 @@ class SongSelector:
             info += f"\n   Настроение: {', '.join(mood)}"
         
         return info
+    
+    def _try_request_with_fallback(self, payload: Dict[str, Any], headers: Dict[str, str]) -> Dict[str, Any]:
+        """
+        Пытается выполнить запрос к API, переключаясь между моделями при ошибках.
+        
+        Args:
+            payload: Тело запроса
+            headers: Заголовки запроса
+            
+        Returns:
+            Ответ от API в формате JSON
+            
+        Raises:
+            Exception: Если все модели недоступны
+        """
+        last_error = None
+        
+        for model_name in self.models_to_try:
+            try:
+                api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+                response = requests.post(api_url, headers=headers, json=payload)
+                
+                if response.status_code == 200:
+                    # Если это не первая модель, сообщим о переключении
+                    if model_name != self.model:
+                        print(f"  ⚠️  Переключился на модель: {model_name}")
+                    return response.json()
+                else:
+                    # Проверяем, является ли это ошибкой модели (404, 400 с упоминанием модели)
+                    error_text = response.text.lower()
+                    is_model_error = (
+                        response.status_code == 404 or
+                        "not found" in error_text or
+                        "not supported" in error_text or
+                        ("model" in error_text and ("not found" in error_text or "not supported" in error_text))
+                    )
+                    
+                    if is_model_error:
+                        # Это ошибка модели, пробуем следующую
+                        last_error = f"{response.status_code}: {response.text[:200]}"
+                        continue
+                    else:
+                        # Другая ошибка (квота, авторизация и т.д.) - пробрасываем
+                        raise Exception(f"{response.status_code}: {response.text}")
+                        
+            except requests.exceptions.RequestException as e:
+                # Сетевая ошибка - пробуем следующую модель
+                last_error = str(e)
+                continue
+        
+        # Все модели не сработали
+        raise Exception(f"Все модели недоступны. Последняя ошибка: {last_error}")
     
     def choose_best(
         self, 
@@ -103,22 +174,27 @@ class SongSelector:
 ОБЪЯСНЕНИЕ: [подробное объяснение, почему эта песня лучше всего подходит запросу пользователя]"""
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "Ты эксперт по музыке, который помогает пользователям найти идеальную песню для их настроения и ситуации."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                temperature=0.7
-            )
+            # Формируем полный промпт с системным сообщением
+            full_prompt = """Ты эксперт по музыке, который помогает пользователям найти идеальную песню для их настроения и ситуации.
+
+""" + prompt
             
-            reasoning = response.choices[0].message.content
+            headers = {
+                'Content-Type': 'application/json',
+                'X-goog-api-key': self.api_key
+            }
+            payload = {
+                "contents": [{
+                    "parts": [{"text": full_prompt}]
+                }],
+                "generationConfig": {
+                    "temperature": 0.7
+                }
+            }
+            
+            # Пытаемся выполнить запрос с автоматическим переключением моделей
+            result = self._try_request_with_fallback(payload, headers)
+            reasoning = result["candidates"][0]["content"]["parts"][0]["text"]
             
             # Парсинг ответа для извлечения номера выбранной песни
             selected_index = self._parse_selection(reasoning, len(candidates))

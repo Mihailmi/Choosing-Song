@@ -5,7 +5,7 @@
 
 import numpy as np
 from typing import List, Dict, Any
-from .embeddings_manager import EmbeddingsManager
+from embeddings_manager import EmbeddingsManager
 
 
 class SongSearch:

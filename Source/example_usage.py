@@ -34,9 +34,9 @@ def example_search():
         return
     
     # Инициализация
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
-        print("❌ OPENAI_API_KEY не установлен!")
+        print("❌ GOOGLE_API_KEY не установлен!")
         return
     
     print("🔧 Инициализация системы...")
@@ -68,13 +68,20 @@ def example_search():
         
         # Выбор лучшей
         print("\n🧠 Выбираю лучшую песню...")
-        result = selector.choose_best(query, candidates)
-        
-        # Результат
-        print(f"\n⭐ ВЫБРАННАЯ ПЕСНЯ:")
-        print(f"   {result['song'].get('title')} - {result['song'].get('artist')}")
-        if result.get('reasoning'):
-            print(f"\n💭 Объяснение:\n{result['reasoning']}")
+        try:
+            result = selector.choose_best(query, candidates)
+            # Результат
+            print(f"\n⭐ ВЫБРАННАЯ ПЕСНЯ:")
+            print(f"   {result['song'].get('title')} - {result['song'].get('artist')}")
+            if result.get('reasoning'):
+                print(f"\n💭 Объяснение:\n{result['reasoning']}")
+        except Exception as e:
+            # Если LLM не работает, возвращаем топ результат
+            print(f"⚠️  LLM выбор недоступен: {e}")
+            print(f"\n⭐ РЕКОМЕНДУЕМАЯ ПЕСНЯ (топ результат поиска):")
+            top_song = candidates[0]
+            print(f"   {top_song.get('title')} - {top_song.get('artist')}")
+            print(f"\n💡 Это наиболее релевантная песня по семантическому поиску.")
 
 
 if __name__ == "__main__":
