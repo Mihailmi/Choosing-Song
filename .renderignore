@@ -1,0 +1,20 @@
+# Файлы, которые не нужно загружать на Render
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Source/test.py
+Source/__pycache__/
+

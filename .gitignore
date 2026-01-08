@@ -2,8 +2,8 @@
 Data/Songs.json
 
 # Создаваемые файлы
-Data/songs_index.faiss
-Data/songs_metadata.json
+# Data/songs_index.faiss
+# Data/songs_metadata.json
 
 # Переменные окружения
 .env

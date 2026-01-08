@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: song-selector-app
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: cd Source && gunicorn -w 2 -b 0.0.0.0:$PORT --timeout 120 web_app:app
+    envVars:
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: FLASK_DEBUG
+        value: false
+      - key: PYTHON_VERSION
+        value: 3.11.0
+
