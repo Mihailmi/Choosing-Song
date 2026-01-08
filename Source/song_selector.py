@@ -12,7 +12,7 @@ from typing import List, Dict, Any
 class SongSelector:
     """Класс для выбора лучшей песни из кандидатов через LLM."""
     
-    def __init__(self, api_key: str = None, model: str = "gemini-2.5-flash", fallback_models: List[str] = None, max_retries: int = 2):
+    def __init__(self, api_key: str = None, model: str = "gemini-2.5-flash-lite", fallback_models: List[str] = None, max_retries: int = 2):
         """
         Инициализация селектора песен.
         
@@ -31,7 +31,9 @@ class SongSelector:
         # Резервные модели по умолчанию (от быстрых к более мощным)
         if fallback_models is None:
             self.fallback_models = [
+                "gemini-2.5-flash-lite",
                 "gemini-2.5-flash",
+                "gemini-2.0-flash-lite",
                 "gemini-2.0-flash",
                 "gemini-1.5-flash",
                 "gemini-2.5-pro",
