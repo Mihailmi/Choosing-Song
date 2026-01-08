@@ -46,8 +46,6 @@ class EmbeddingsManager:
         
         if song.get("title"):
             text_parts.append(f"Название: {song['title']}")
-        if song.get("artist"):
-            text_parts.append(f"Исполнитель: {song['artist']}")
         
         # Обработка lyrics - может быть строкой или массивом строк
         if song.get("lyrics"):

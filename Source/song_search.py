@@ -56,7 +56,6 @@ class SongSearch:
         k: int = 5,
         language: str = None,
         mood: List[str] = None,
-        artist: str = None
     ) -> List[Dict[str, Any]]:
         """
         Поиск с дополнительными фильтрами.
@@ -66,7 +65,6 @@ class SongSearch:
             k: Количество песен для возврата
             language: Фильтр по языку (например, "ru", "en")
             mood: Список настроений для фильтрации
-            artist: Фильтр по исполнителю
             
         Returns:
             Отфильтрованный список песен
@@ -87,10 +85,6 @@ class SongSearch:
                     song_moods = [song_moods]
                 if not any(m in song_moods for m in mood):
                     continue
-            
-            # Фильтр по исполнителю
-            if artist and song.get("artist", "").lower() != artist.lower():
-                continue
             
             filtered.append(song)
             

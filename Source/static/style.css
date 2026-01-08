@@ -91,6 +91,11 @@ header h1 {
 
 #queryInput::placeholder {
     color: var(--text-muted);
+    opacity: 0.7;
+    font-size: 0.95rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .search-btn {
@@ -197,6 +202,10 @@ header h1 {
         width: 100%;
     }
     
+    #queryInput::placeholder {
+        font-size: 0.9rem;
+    }
+    
     .search-btn {
         width: 100%;
         padding: 12px 20px;
@@ -230,11 +239,6 @@ header h1 {
     .candidate-card h3 {
         font-size: 1.1rem;
         margin-bottom: 6px;
-    }
-    
-    .candidate-card .artist {
-        font-size: 0.9rem;
-        margin-bottom: 8px;
     }
     
     .candidate-card .lyrics-preview {
@@ -326,6 +330,10 @@ header h1 {
         font-size: 0.9rem;
         margin-top: 12px;
     }
+    
+    #queryInput::placeholder {
+        font-size: 0.85rem;
+    }
 }
 
 .candidates-section,
@@ -375,12 +383,6 @@ header h1 {
     color: var(--text-primary);
 }
 
-.candidate-card .artist {
-    color: var(--text-secondary);
-    font-size: 0.95rem;
-    margin-bottom: 10px;
-}
-
 .candidate-card .themes,
 .candidate-card .mood {
     display: flex;
@@ -423,16 +425,19 @@ header h1 {
     background: rgba(99, 102, 241, 0.2);
     color: var(--primary-color);
     border: 1px solid rgba(99, 102, 241, 0.3);
-    padding: 6px 12px;
+    padding: 8px 16px;
     border-radius: 6px;
-    font-size: 0.85rem;
+    font-size: 0.9rem;
     cursor: pointer;
-    margin-top: 10px;
+    margin-top: 12px;
     transition: all 0.3s ease;
     display: inline-block;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
     min-height: 44px; /* Минимальный размер для удобного нажатия на мобильных */
+    font-weight: 500;
+    width: 100%;
+    text-align: center;
 }
 
 .candidate-card .toggle-lyrics-btn:hover {
@@ -452,12 +457,6 @@ header h1 {
     font-size: 1.5rem;
     margin-bottom: 10px;
     color: var(--selected-color);
-}
-
-.selected-song .artist {
-    color: var(--text-secondary);
-    font-size: 1.1rem;
-    margin-bottom: 15px;
 }
 
 .selected-song .themes,

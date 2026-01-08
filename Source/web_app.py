@@ -81,6 +81,16 @@ def search_songs():
         # Поиск кандидатов
         candidates = search_engine.search(query, k=5)
         
+        # Отладка: выводим структуру данных кандидатов
+        print(f"\n🔍 Найдено {len(candidates)} кандидатов:")
+        for idx, candidate in enumerate(candidates, 1):
+            print(f"  {idx}. {candidate.get('title', 'Без названия')}")
+            print(f"     Поля: {list(candidate.keys())}")
+            print(f"     Есть lyrics? {bool(candidate.get('lyrics'))}")
+            if candidate.get('lyrics'):
+                lyrics = candidate.get('lyrics')
+                print(f"     Тип lyrics: {type(lyrics)}, длина: {len(str(lyrics)) if lyrics else 0}")
+        
         if not candidates:
             return jsonify({
                 'candidates': [],

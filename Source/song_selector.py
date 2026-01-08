@@ -61,8 +61,6 @@ class SongSelector:
         
         if song.get("title"):
             info += f"Название: {song['title']}"
-        if song.get("artist"):
-            info += f" | Исполнитель: {song['artist']}"
         if song.get("lyrics"):
             lyrics = song["lyrics"]
             # Обработка lyrics - может быть строкой или массивом

@@ -160,9 +160,8 @@ def test_with_existing_logic():
                 print(f"✅ Найдено {len(results)} песен:")
                 for idx, song in enumerate(results, 1):
                     title = song.get("title", "Без названия")
-                    artist = song.get("artist", "Неизвестный")
                     distance = song.get("similarity_distance", 0)
-                    print(f"   {idx}. {title} - {artist} (расстояние: {distance:.2f})")
+                    print(f"   {idx}. {title} (расстояние: {distance:.2f})")
             else:
                 print("❌ Не найдено результатов")
                 

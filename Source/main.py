@@ -24,8 +24,6 @@ def print_song_info(song: dict):
     print("\n" + "="*60)
     if song.get("title"):
         print(f"🎵 Название: {song['title']}")
-    if song.get("artist"):
-        print(f"👤 Исполнитель: {song['artist']}")
     if song.get("themes"):
         themes = song.get("themes", [])
         if isinstance(themes, str):
@@ -109,8 +107,7 @@ def main():
             print("\n📋 Кандидаты:")
             for idx, song in enumerate(candidates, 1):
                 title = song.get("title", "Без названия")
-                artist = song.get("artist", "Неизвестный исполнитель")
-                print(f"  {idx}. {title} - {artist}")
+                print(f"  {idx}. {title}")
             
             # Выбор лучшей песни через LLM
             print("\n🧠 Анализирую и выбираю лучшую песню...")

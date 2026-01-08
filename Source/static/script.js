@@ -45,6 +45,19 @@ async function searchSongs(query) {
         }
         
         if (data.candidates && data.candidates.length > 0) {
+            // Отладка: выводим данные, полученные с сервера
+            console.log('📥 Данные получены с сервера:', data);
+            console.log('📋 Кандидаты:', data.candidates);
+            data.candidates.forEach((candidate, idx) => {
+                console.log(`Кандидат ${idx + 1}:`, {
+                    title: candidate.title,
+                    keys: Object.keys(candidate),
+                    hasLyrics: !!candidate.lyrics,
+                    lyricsType: candidate.lyrics ? typeof candidate.lyrics : 'нет',
+                    lyricsValue: candidate.lyrics ? (Array.isArray(candidate.lyrics) ? `массив[${candidate.lyrics.length}]` : String(candidate.lyrics).substring(0, 100)) : 'нет'
+                });
+            });
+            
             displayResults(data);
             // Показываем предупреждение, если модели перегружены
             if (data.warning) {
@@ -109,7 +122,10 @@ function createCandidateCard(song, index, selectedSong) {
     }
     
     const title = song.title || 'Без названия';
-    const artist = song.artist || 'Неизвестный исполнитель';
+    
+    // Отладка: выводим структуру данных песни
+    console.log(`Песня ${index}:`, song);
+    console.log(`Есть lyrics?`, !!song.lyrics, song.lyrics ? typeof song.lyrics : 'нет');
     
     let themesHTML = '';
     if (song.themes) {
@@ -126,26 +142,46 @@ function createCandidateCard(song, index, selectedSong) {
     let lyricsHTML = '';
     let lyricsPreview = '';
     let hasFullLyrics = false;
+    let hasLyrics = false;
     
-    if (song.lyrics) {
-        let lyrics = Array.isArray(song.lyrics) ? song.lyrics.join('\n') : song.lyrics;
+    // Проверяем наличие текста в разных возможных полях
+    let lyrics = song.lyrics || song.text || song.content || null;
+    
+    if (lyrics) {
+        hasLyrics = true;
+        // Обрабатываем lyrics - может быть строкой, массивом строк или объектом
+        if (Array.isArray(lyrics)) {
+            lyrics = lyrics.join('\n');
+        } else if (typeof lyrics === 'object') {
+            // Если это объект, пытаемся извлечь текст
+            lyrics = JSON.stringify(lyrics);
+        }
+        
+        // Убеждаемся, что это строка
+        lyrics = String(lyrics).trim();
         hasFullLyrics = lyrics.length > 150;
         
         if (hasFullLyrics) {
             lyricsPreview = `<div class="lyrics-preview">${escapeHtml(lyrics.substring(0, 150))}...</div>`;
             lyricsHTML = `<div class="lyrics-full" style="display: none;">${escapeHtml(lyrics)}</div>`;
         } else {
+            // Для коротких текстов тоже делаем возможность скрыть/показать
             lyricsPreview = `<div class="lyrics-preview">${escapeHtml(lyrics)}</div>`;
+            lyricsHTML = `<div class="lyrics-full" style="display: none;">${escapeHtml(lyrics)}</div>`;
         }
+    } else {
+        console.log(`⚠️ У песни ${index} нет текста! Доступные поля:`, Object.keys(song));
+        // Показываем сообщение, что текста нет
+        lyricsPreview = `<div class="lyrics-preview" style="color: var(--text-muted); font-style: italic;">Текст песни недоступен</div>`;
     }
     
-    const toggleButtonHTML = hasFullLyrics 
-        ? `<button class="toggle-lyrics-btn" onclick="toggleLyrics(this)">📝 Показать полный текст</button>`
+    // Всегда показываем кнопку, если есть текст
+    const toggleButtonHTML = hasLyrics 
+        ? `<button class="toggle-lyrics-btn" onclick="toggleLyrics(this)">${hasFullLyrics ? '📝 Показать полный текст' : '📝 Показать текст'}</button>`
         : '';
     
     card.innerHTML = `
         <h3>${index}. ${escapeHtml(title)}</h3>
-        <div class="artist">👤 ${escapeHtml(artist)}</div>
         ${themesHTML}
         ${moodHTML}
         ${lyricsPreview}
@@ -153,30 +189,60 @@ function createCandidateCard(song, index, selectedSong) {
         ${toggleButtonHTML}
     `;
     
+    // Добавляем обработчик клика на карточку (кроме кнопки)
+    if (hasLyrics) {
+        card.addEventListener('click', (e) => {
+            // Не обрабатываем клик, если кликнули на кнопку
+            if (e.target.classList.contains('toggle-lyrics-btn') || e.target.closest('.toggle-lyrics-btn')) {
+                return;
+            }
+            // Ищем кнопку в карточке и вызываем её клик
+            const button = card.querySelector('.toggle-lyrics-btn');
+            if (button) {
+                toggleLyrics(button);
+            }
+        });
+    }
+    
     return card;
 }
 
 // Функция переключения отображения полного текста
 function toggleLyrics(button) {
     const card = button.closest('.candidate-card');
+    if (!card) {
+        console.error('Не найдена карточка для кнопки');
+        return;
+    }
+    
     const lyricsFull = card.querySelector('.lyrics-full');
     const lyricsPreview = card.querySelector('.lyrics-preview');
     
-    if (lyricsFull && lyricsFull.style.display === 'none') {
+    if (!lyricsFull || !lyricsPreview) {
+        console.error('Не найдены элементы текста в карточке', { lyricsFull, lyricsPreview });
+        return;
+    }
+    
+    const isCurrentlyHidden = lyricsFull.style.display === 'none' || lyricsFull.style.display === '';
+    
+    if (isCurrentlyHidden) {
         lyricsFull.style.display = 'block';
         lyricsPreview.style.display = 'none';
         button.textContent = '📝 Скрыть текст';
+        // Прокручиваем к тексту для удобства
+        lyricsFull.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } else {
         lyricsFull.style.display = 'none';
         lyricsPreview.style.display = 'block';
-        button.textContent = '📝 Показать полный текст';
+        const previewText = lyricsPreview.textContent || '';
+        const isLong = previewText.length > 150 || previewText.includes('...');
+        button.textContent = isLong ? '📝 Показать полный текст' : '📝 Показать текст';
     }
 }
 
 // Создание HTML для выбранной песни
 function createSelectedSongHTML(song) {
     const title = song.title || 'Без названия';
-    const artist = song.artist || 'Неизвестный исполнитель';
     
     let themesHTML = '';
     if (song.themes) {
@@ -191,14 +257,25 @@ function createSelectedSongHTML(song) {
     }
     
     let lyricsHTML = '';
-    if (song.lyrics) {
-        let lyrics = Array.isArray(song.lyrics) ? song.lyrics.join('\n') : song.lyrics;
-        lyricsHTML = `<div class="lyrics">${escapeHtml(lyrics)}</div>`;
+    // Проверяем наличие текста в разных возможных полях
+    let lyrics = song.lyrics || song.text || song.content || null;
+    if (lyrics) {
+        // Обрабатываем lyrics - может быть строкой, массивом строк или объектом
+        if (Array.isArray(lyrics)) {
+            lyrics = lyrics.join('\n');
+        } else if (typeof lyrics === 'object') {
+            // Если это объект, пытаемся извлечь текст
+            lyrics = JSON.stringify(lyrics);
+        }
+        // Убеждаемся, что это строка
+        lyrics = String(lyrics).trim();
+        if (lyrics) {
+            lyricsHTML = `<div class="lyrics">${escapeHtml(lyrics)}</div>`;
+        }
     }
     
     return `
         <h3>🎵 ${escapeHtml(title)}</h3>
-        <div class="artist">👤 ${escapeHtml(artist)}</div>
         ${themesHTML}
         ${moodHTML}
         ${lyricsHTML}

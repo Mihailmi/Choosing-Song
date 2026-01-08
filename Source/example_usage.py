@@ -63,8 +63,7 @@ def example_search():
         print(f"\n✅ Найдено {len(candidates)} кандидатов:")
         for idx, song in enumerate(candidates, 1):
             title = song.get("title", "Без названия")
-            artist = song.get("artist", "Неизвестный")
-            print(f"  {idx}. {title} - {artist}")
+            print(f"  {idx}. {title}")
         
         # Выбор лучшей
         print("\n🧠 Выбираю лучшую песню...")
@@ -72,7 +71,7 @@ def example_search():
             result = selector.choose_best(query, candidates)
             # Результат
             print(f"\n⭐ ВЫБРАННАЯ ПЕСНЯ:")
-            print(f"   {result['song'].get('title')} - {result['song'].get('artist')}")
+            print(f"   {result['song'].get('title')}")
             if result.get('reasoning'):
                 print(f"\n💭 Объяснение:\n{result['reasoning']}")
         except Exception as e:
@@ -80,7 +79,7 @@ def example_search():
             print(f"⚠️  LLM выбор недоступен: {e}")
             print(f"\n⭐ РЕКОМЕНДУЕМАЯ ПЕСНЯ (топ результат поиска):")
             top_song = candidates[0]
-            print(f"   {top_song.get('title')} - {top_song.get('artist')}")
+            print(f"   {top_song.get('title')}")
             print(f"\n💡 Это наиболее релевантная песня по семантическому поиску.")
 
 
