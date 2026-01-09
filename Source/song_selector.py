@@ -6,6 +6,9 @@
 import os
 import requests
 import time
+import json
+import asyncio
+import aiohttp
 from typing import List, Dict, Any
 
 
@@ -229,57 +232,118 @@ class SongSelector:
         for idx, song in enumerate(candidates, 1):
             candidates_text += self._format_song_info(song, idx)
         
-        # Создание промпта
-        prompt = f"""Ты помощник по выбору музыки. Пользователь хочет найти песню по следующему описанию:
+        # Создание промпта с Few-shot Learning
+        prompt = f"""Ты христианский эксперт по выбору христианской музыки, который помогает христианским пользователям найти идеальную песню для их настроения и ситуации.
 
+Примеры правильных ответов:
+
+Запрос: "Хочу спокойную песню для вечера"
+Кандидаты:
+1. Название: Тихая ночь
+   Текст: Спокойная мелодия для вечернего времени...
+   Настроение: спокойная, умиротворённая
+2. Название: Утренняя радость
+   Текст: Энергичная песня для начала дня...
+   Настроение: энергичная, радостная
+ВЫБОР: 1
+ОБЪЯСНЕНИЕ: Песня "Тихая ночь" идеально подходит для вечера, так как она спокойная и создаёт атмосферу умиротворения, что соответствует запросу пользователя.
+
+---
+
+Запрос: "Нужна песня про любовь и расставание"
+Кандидаты:
+1. Название: Прощание
+   Текст: Текст о расставании с любимым...
+   Темы: любовь, расставание
+2. Название: Новая встреча
+   Текст: Песня о новой любви...
+   Темы: любовь, надежда
+ВЫБОР: 1
+ОБЪЯСНЕНИЕ: Песня "Прощание" наиболее точно соответствует запросу, так как она сочетает темы любви и расставания, что точно отражает желание пользователя.
+
+---
+
+Теперь выбери для этого запроса:
 "{user_query}"
 
-Вот несколько подходящих песен, найденных по смыслу:
+Вот несколько подходящих христианских песен, найденных по смыслу:
 {candidates_text}
 
 Твоя задача:
-1. Выбери ОДНУ лучшую песню, которая наиболее точно соответствует запросу пользователя
-2. Объясни, почему именно эта песня подходит лучше всего
+1. Выбери ОДНУ лучшую христианскую песню, которая наиболее точно соответствует запросу пользователя
+2. Объясни, почему именно эта христианская песня подходит лучше всего
 
 Ответь в следующем формате:
 ВЫБОР: [номер песни]
-ОБЪЯСНЕНИЕ: [подробное объяснение, почему эта песня лучше всего подходит запросу пользователя]"""
+ОБЪЯСНЕНИЕ: [подробное объяснение, почему эта христианская песня лучше всего подходит запросу пользователя]"""
 
         try:
-            # Формируем полный промпт с системным сообщением
-            full_prompt = """Ты эксперт по музыке, который помогает пользователям найти идеальную песню для их настроения и ситуации.
-
-""" + prompt
+            # Формируем полный промпт
+            full_prompt = prompt
             
             headers = {
                 'Content-Type': 'application/json',
                 'X-goog-api-key': self.api_key
             }
+            
+            # Используем Structured Output (JSON режим) если поддерживается
+            # Для Gemini используем responseSchema
             payload = {
                 "contents": [{
                     "parts": [{"text": full_prompt}]
                 }],
                 "generationConfig": {
-                    "temperature": 0.7
+                    "temperature": 0.7,
+                    "responseMimeType": "application/json",
+                    "responseSchema": {
+                        "type": "object",
+                        "properties": {
+                            "selected_index": {
+                                "type": "integer",
+                                "description": "Номер выбранной песни (1-based)"
+                            },
+                            "reasoning": {
+                                "type": "string",
+                                "description": "Подробное объяснение, почему эта песня лучше всего подходит запросу пользователя"
+                            },
+                            "confidence": {
+                                "type": "number",
+                                "description": "Уверенность в выборе от 0 до 1"
+                            }
+                        },
+                        "required": ["selected_index", "reasoning"]
+                    }
                 }
             }
             
             # Пытаемся выполнить запрос с автоматическим переключением моделей
-            result = self._try_request_with_fallback(payload, headers)
-            reasoning = result["candidates"][0]["content"]["parts"][0]["text"]
+            api_result = self._try_request_with_fallback(payload, headers)
+            response_text = api_result["candidates"][0]["content"]["parts"][0]["text"]
             
-            # Парсинг ответа для извлечения номера выбранной песни
-            selected_index = self._parse_selection(reasoning, len(candidates))
+            # Пытаемся распарсить JSON ответ
+            try:
+                json_response = json.loads(response_text)
+                selected_index = json_response.get("selected_index")
+                reasoning = json_response.get("reasoning", "")
+                confidence = json_response.get("confidence", 0.5)
+            except (json.JSONDecodeError, KeyError):
+                # Если JSON не распарсился, используем старый метод парсинга
+                reasoning = response_text
+                selected_index = self._parse_selection(reasoning, len(candidates))
+                confidence = 0.5
             
-            if selected_index is None:
+            if selected_index is None or not (1 <= selected_index <= len(candidates)):
                 # Если не удалось распарсить, берём первую песню
                 selected_song = candidates[0]
+                if not reasoning:
+                    reasoning = "Не удалось определить выбор автоматически. Возвращена первая найденная песня."
             else:
                 selected_song = candidates[selected_index - 1]
             
             result = {
                 "song": selected_song,
-                "reasoning": reasoning if return_reasoning else None
+                "reasoning": reasoning if return_reasoning else None,
+                "confidence": confidence
             }
             
             return result
@@ -328,4 +392,178 @@ class SongSelector:
                 return num
         
         return None
+    
+    async def choose_best_async(
+        self,
+        user_query: str,
+        candidates: List[Dict[str, Any]],
+        session: aiohttp.ClientSession,
+        return_reasoning: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Асинхронная версия choose_best.
+        
+        Args:
+            user_query: Запрос пользователя
+            candidates: Список кандидатов (песен)
+            session: aiohttp сессия
+            return_reasoning: Возвращать ли объяснение выбора
+            
+        Returns:
+            Словарь с выбранной песней и объяснением
+        """
+        if not candidates:
+            raise ValueError("Список кандидатов пуст!")
+        
+        # Форматирование списка кандидатов
+        candidates_text = ""
+        for idx, song in enumerate(candidates, 1):
+            candidates_text += self._format_song_info(song, idx)
+        
+        # Создание промпта (тот же, что и в синхронной версии)
+        prompt = f"""Ты христианский эксперт по выбору христианской музыки, который помогает христианским пользователям найти идеальную песню для их настроения и ситуации.
+
+Примеры правильных ответов:
+
+Запрос: "Хочу спокойную песню для вечера"
+Кандидаты:
+1. Название: Тихая ночь
+   Текст: Спокойная мелодия для вечернего времени...
+   Настроение: спокойная, умиротворённая
+2. Название: Утренняя радость
+   Текст: Энергичная песня для начала дня...
+   Настроение: энергичная, радостная
+ВЫБОР: 1
+ОБЪЯСНЕНИЕ: Песня "Тихая ночь" идеально подходит для вечера, так как она спокойная и создаёт атмосферу умиротворения, что соответствует запросу пользователя.
+
+---
+
+Теперь выбери для этого запроса:
+"{user_query}"
+
+Вот несколько подходящих христианских песен, найденных по смыслу:
+{candidates_text}
+
+Твоя задача:
+1. Выбери ОДНУ лучшую христианскую песню, которая наиболее точно соответствует запросу пользователя
+2. Объясни, почему именно эта христианская песня подходит лучше всего
+
+Ответь в следующем формате:
+ВЫБОР: [номер песни]
+ОБЪЯСНЕНИЕ: [подробное объяснение, почему эта христианская песня лучше всего подходит запросу пользователя]"""
+        
+        try:
+            headers = {
+                'Content-Type': 'application/json',
+                'X-goog-api-key': self.api_key
+            }
+            
+            payload = {
+                "contents": [{
+                    "parts": [{"text": prompt}]
+                }],
+                "generationConfig": {
+                    "temperature": 0.7,
+                    "responseMimeType": "application/json",
+                    "responseSchema": {
+                        "type": "object",
+                        "properties": {
+                            "selected_index": {
+                                "type": "integer",
+                                "description": "Номер выбранной песни (1-based)"
+                            },
+                            "reasoning": {
+                                "type": "string",
+                                "description": "Подробное объяснение выбора"
+                            },
+                            "confidence": {
+                                "type": "number",
+                                "description": "Уверенность в выборе от 0 до 1"
+                            }
+                        },
+                        "required": ["selected_index", "reasoning"]
+                    }
+                }
+            }
+            
+            # Асинхронный запрос
+            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
+            async with session.post(api_url, headers=headers, json=payload) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    raise Exception(f"API error {response.status}: {error_text}")
+                
+                api_result = await response.json()
+                response_text = api_result["candidates"][0]["content"]["parts"][0]["text"]
+                
+                # Парсинг JSON
+                try:
+                    json_response = json.loads(response_text)
+                    selected_index = json_response.get("selected_index")
+                    reasoning = json_response.get("reasoning", "")
+                    confidence = json_response.get("confidence", 0.5)
+                except (json.JSONDecodeError, KeyError):
+                    reasoning = response_text
+                    selected_index = self._parse_selection(reasoning, len(candidates))
+                    confidence = 0.5
+                
+                if selected_index is None or not (1 <= selected_index <= len(candidates)):
+                    selected_song = candidates[0]
+                    if not reasoning:
+                        reasoning = "Не удалось определить выбор автоматически."
+                else:
+                    selected_song = candidates[selected_index - 1]
+                
+                return {
+                    "song": selected_song,
+                    "reasoning": reasoning if return_reasoning else None,
+                    "confidence": confidence
+                }
+                
+        except Exception as e:
+            print(f"Ошибка при выборе песни: {e}")
+            return {
+                "song": candidates[0],
+                "reasoning": "Произошла ошибка при анализе. Возвращена первая найденная песня.",
+                "confidence": 0.0
+            }
+    
+    async def choose_best_batch(
+        self,
+        queries: List[str],
+        candidates_list: List[List[Dict[str, Any]]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Batch обработка нескольких запросов одновременно.
+        
+        Args:
+            queries: Список запросов пользователей
+            candidates_list: Список списков кандидатов для каждого запроса
+            
+        Returns:
+            Список результатов для каждого запроса
+        """
+        if len(queries) != len(candidates_list):
+            raise ValueError("Количество запросов должно совпадать с количеством списков кандидатов")
+        
+        async with aiohttp.ClientSession() as session:
+            tasks = [
+                self.choose_best_async(query, candidates, session)
+                for query, candidates in zip(queries, candidates_list)
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Обрабатываем исключения
+            processed_results = []
+            for result in results:
+                if isinstance(result, Exception):
+                    processed_results.append({
+                        "song": None,
+                        "reasoning": f"Ошибка: {str(result)}",
+                        "confidence": 0.0
+                    })
+                else:
+                    processed_results.append(result)
+            
+            return processed_results
 

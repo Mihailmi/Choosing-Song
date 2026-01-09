@@ -4,7 +4,9 @@
 """
 
 import numpy as np
+import re
 from typing import List, Dict, Any
+from collections import Counter
 from embeddings_manager import EmbeddingsManager
 
 
@@ -22,6 +24,9 @@ class SongSearch:
         
         if embeddings_manager.index is None:
             raise ValueError("Индекс не загружен! Сначала загрузите индекс.")
+        
+        # Подготовка данных для keyword поиска
+        self._prepare_keyword_index()
     
     def search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
         """
@@ -92,4 +97,147 @@ class SongSearch:
                 break
         
         return filtered
+    
+    def _prepare_keyword_index(self):
+        """Подготавливает индекс для keyword поиска."""
+        self.song_texts = []
+        for metadata in self.embeddings_manager.vectors_metadata:
+            song = metadata["metadata"]
+            # Собираем весь текст песни для keyword поиска
+            text_parts = []
+            if song.get("title"):
+                text_parts.append(song["title"].lower())
+            if song.get("lyrics"):
+                lyrics = song["lyrics"]
+                if isinstance(lyrics, list):
+                    lyrics = " ".join(lyrics)
+                text_parts.append(str(lyrics).lower())
+            if song.get("themes"):
+                themes = song.get("themes", [])
+                if isinstance(themes, str):
+                    themes = [themes]
+                text_parts.extend([t.lower() for t in themes])
+            if song.get("mood"):
+                mood = song.get("mood", [])
+                if isinstance(mood, str):
+                    mood = [mood]
+                text_parts.extend([m.lower() for m in mood])
+            
+            self.song_texts.append(" ".join(text_parts))
+    
+    def _tokenize(self, text: str) -> List[str]:
+        """Простая токенизация текста."""
+        # Удаляем знаки препинания и разбиваем на слова
+        text = re.sub(r'[^\w\s]', ' ', text.lower())
+        words = text.split()
+        # Удаляем очень короткие слова
+        return [w for w in words if len(w) > 2]
+    
+    def _keyword_search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
+        """
+        Простой keyword поиск на основе TF (term frequency).
+        
+        Args:
+            query: Текст запроса
+            k: Количество результатов
+            
+        Returns:
+            Список песен с оценкой релевантности
+        """
+        query_words = set(self._tokenize(query))
+        if not query_words:
+            return []
+        
+        scores = []
+        for idx, song_text in enumerate(self.song_texts):
+            song_words = self._tokenize(song_text)
+            word_counts = Counter(song_words)
+            
+            # Подсчитываем совпадения
+            matches = sum(word_counts.get(word, 0) for word in query_words)
+            # Нормализуем по длине текста
+            score = matches / max(len(song_words), 1)
+            
+            if score > 0:
+                song_data = self.embeddings_manager.vectors_metadata[idx]["metadata"].copy()
+                song_data["keyword_score"] = score
+                scores.append((score, song_data))
+        
+        # Сортируем по убыванию score
+        scores.sort(reverse=True, key=lambda x: x[0])
+        return [song for _, song in scores[:k]]
+    
+    def hybrid_search(self, query: str, k: int = 5, semantic_weight: float = 0.7, keyword_weight: float = 0.3) -> List[Dict[str, Any]]:
+        """
+        Гибридный поиск: комбинация семантического и keyword поиска.
+        
+        Args:
+            query: Текст запроса
+            k: Количество результатов
+            semantic_weight: Вес семантического поиска (0-1)
+            keyword_weight: Вес keyword поиска (0-1)
+            
+        Returns:
+            Список песен, отсортированных по релевантности
+        """
+        # Семантический поиск
+        semantic_results = self.search(query, k=k * 2)
+        
+        # Keyword поиск
+        keyword_results = self._keyword_search(query, k=k * 2)
+        
+        # Создаём словарь для объединения результатов
+        combined_scores = {}
+        
+        # Добавляем результаты семантического поиска
+        for idx, song in enumerate(semantic_results):
+            song_id = song.get("id", id(song))
+            distance = song.get("similarity_distance", 1.0)
+            # Преобразуем расстояние в score (меньше расстояние = выше score)
+            semantic_score = 1.0 / (1.0 + distance)
+            combined_scores[song_id] = {
+                "song": song,
+                "semantic_score": semantic_score,
+                "keyword_score": 0.0
+            }
+        
+        # Добавляем результаты keyword поиска
+        for song in keyword_results:
+            song_id = song.get("id", id(song))
+            keyword_score = song.get("keyword_score", 0.0)
+            
+            if song_id in combined_scores:
+                combined_scores[song_id]["keyword_score"] = keyword_score
+            else:
+                combined_scores[song_id] = {
+                    "song": song,
+                    "semantic_score": 0.0,
+                    "keyword_score": keyword_score
+                }
+        
+        # Нормализуем scores
+        if combined_scores:
+            max_semantic = max(s["semantic_score"] for s in combined_scores.values()) or 1.0
+            max_keyword = max(s["keyword_score"] for s in combined_scores.values()) or 1.0
+            
+            for song_id in combined_scores:
+                s = combined_scores[song_id]
+                if max_semantic > 0:
+                    s["semantic_score"] /= max_semantic
+                if max_keyword > 0:
+                    s["keyword_score"] /= max_keyword
+        
+        # Вычисляем итоговый score
+        final_results = []
+        for song_id, data in combined_scores.items():
+            final_score = (semantic_weight * data["semantic_score"] + 
+                          keyword_weight * data["keyword_score"])
+            song = data["song"].copy()
+            song["hybrid_score"] = final_score
+            song["similarity_distance"] = data["song"].get("similarity_distance", 1.0)
+            final_results.append((final_score, song))
+        
+        # Сортируем по убыванию итогового score
+        final_results.sort(reverse=True, key=lambda x: x[0])
+        return [song for _, song in final_results[:k]]
 

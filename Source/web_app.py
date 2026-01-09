@@ -5,9 +5,14 @@ Flask веб-сервер с современным интерфейсом.
 
 import os
 import sys
+import json
+import time
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
+from pydantic import BaseModel, ValidationError, field_validator
 
 # Добавляем путь к Source для импорта модулей
 sys.path.insert(0, str(Path(__file__).parent))
@@ -21,10 +26,56 @@ load_dotenv()
 
 app = Flask(__name__)
 
+# Настройка Rate Limiting
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["100 per hour"],
+    storage_uri="memory://"
+)
+
+# Валидация входных данных
+class SearchRequest(BaseModel):
+    query: str
+    use_hybrid: bool = True
+    semantic_weight: float = 0.7
+    keyword_weight: float = 0.3
+    
+    @field_validator('query')
+    @classmethod
+    def validate_query(cls, v):
+        if not v or not v.strip():
+            raise ValueError('Запрос не может быть пустым')
+        if len(v) > 500:
+            raise ValueError('Запрос слишком длинный (максимум 500 символов)')
+        return v.strip()
+    
+    @field_validator('semantic_weight', 'keyword_weight')
+    @classmethod
+    def validate_weights(cls, v):
+        if not 0 <= v <= 1:
+            raise ValueError('Веса должны быть от 0 до 1')
+        return v
+
+class FeedbackRequest(BaseModel):
+    query: str
+    selected_song_id: str
+    feedback: str  # 'like' или 'dislike'
+    
+    @field_validator('feedback')
+    @classmethod
+    def validate_feedback(cls, v):
+        if v not in ['like', 'dislike']:
+            raise ValueError('Feedback должен быть "like" или "dislike"')
+        return v
+
 # Глобальные переменные для компонентов системы
 embeddings_manager = None
 search_engine = None
 selector = None
+
+# Хранилище feedback (в продакшене использовать БД)
+feedback_storage = []
 
 
 def init_system():
@@ -66,20 +117,30 @@ def index():
 
 
 @app.route('/api/search', methods=['POST'])
+@limiter.limit("10 per minute")
 def search_songs():
     """API endpoint для поиска песен."""
     try:
-        data = request.get_json()
-        query = data.get('query', '').strip()
-        
-        if not query:
-            return jsonify({'error': 'Запрос не может быть пустым'}), 400
+        # Валидация входных данных
+        try:
+            data = request.get_json() or {}
+            search_request = SearchRequest(**data)
+        except ValidationError as e:
+            return jsonify({'error': 'Ошибка валидации', 'details': str(e)}), 400
         
         if search_engine is None or selector is None:
             return jsonify({'error': 'Система не инициализирована'}), 500
         
-        # Поиск кандидатов
-        candidates = search_engine.search(query, k=5)
+        # Поиск кандидатов (hybrid или обычный)
+        if search_request.use_hybrid and hasattr(search_engine, 'hybrid_search'):
+            candidates = search_engine.hybrid_search(
+                search_request.query, 
+                k=5,
+                semantic_weight=search_request.semantic_weight,
+                keyword_weight=search_request.keyword_weight
+            )
+        else:
+            candidates = search_engine.search(search_request.query, k=5)
         
         # Отладка: выводим структуру данных кандидатов
         print(f"\n🔍 Найдено {len(candidates)} кандидатов:")
@@ -101,7 +162,7 @@ def search_songs():
         
         # Выбор лучшей песни через LLM
         try:
-            result = selector.choose_best(query, candidates)
+            result = selector.choose_best(search_request.query, candidates)
         except Exception as e:
             error_msg = str(e)
             # Если все модели перегружены, возвращаем кандидатов без выбранной песни
@@ -123,6 +184,7 @@ def search_songs():
             'candidates': candidates,
             'selected': result['song'],
             'reasoning': result.get('reasoning'),
+            'confidence': result.get('confidence', 0.5),
             'message': 'Поиск выполнен успешно'
         }
         
@@ -154,6 +216,57 @@ def health_check():
             'status': 'error',
             'message': str(e)
         }), 500
+
+
+@app.route('/api/feedback', methods=['POST'])
+@limiter.limit("20 per minute")
+def submit_feedback():
+    """API endpoint для отправки feedback (лайки/дизлайки)."""
+    try:
+        # Валидация входных данных
+        try:
+            data = request.get_json() or {}
+            feedback_request = FeedbackRequest(**data)
+        except ValidationError as e:
+            return jsonify({'error': 'Ошибка валидации', 'details': str(e)}), 400
+        
+        # Сохраняем feedback (в продакшене использовать БД)
+        feedback_entry = {
+            'query': feedback_request.query,
+            'selected_song_id': feedback_request.selected_song_id,
+            'feedback': feedback_request.feedback,
+            'timestamp': time.time()
+        }
+        feedback_storage.append(feedback_entry)
+        
+        # Ограничиваем размер хранилища
+        if len(feedback_storage) > 1000:
+            feedback_storage.pop(0)
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Feedback сохранён'
+        })
+        
+    except Exception as e:
+        print(f"Ошибка при сохранении feedback: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/feedback/stats', methods=['GET'])
+def get_feedback_stats():
+    """Получить статистику feedback."""
+    try:
+        likes = sum(1 for f in feedback_storage if f['feedback'] == 'like')
+        dislikes = sum(1 for f in feedback_storage if f['feedback'] == 'dislike')
+        
+        return jsonify({
+            'total': len(feedback_storage),
+            'likes': likes,
+            'dislikes': dislikes
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 # Инициализация системы при импорте модуля (для работы с gunicorn)

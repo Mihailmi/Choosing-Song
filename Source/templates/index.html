@@ -9,8 +9,15 @@
 <body>
     <div class="container">
         <header>
-            <h1>🎵 Система выбора песен</h1>
-            <p class="subtitle">На основе RAG (Retrieval-Augmented Generation)</p>
+            <div class="header-content">
+                <div>
+                    <h1>🎵 Система выбора песен</h1>
+                    <p class="subtitle">На основе RAG (Retrieval-Augmented Generation)</p>
+                </div>
+                <button id="historyMenuBtn" class="history-menu-btn" title="История поиска">
+                    📜 История
+                </button>
+            </div>
         </header>
 
         <main>
@@ -43,6 +50,15 @@
                     <h2>⭐ Выбранная песня</h2>
                     <div id="selectedSong" class="selected-song"></div>
                     
+                    <!-- Feedback кнопки -->
+                    <div id="feedbackSection" class="feedback-section" style="display: none;">
+                        <p>Помогла ли вам эта песня?</p>
+                        <div class="feedback-buttons">
+                            <button id="likeBtn" class="feedback-btn like-btn">👍 Понравилось</button>
+                            <button id="dislikeBtn" class="feedback-btn dislike-btn">👎 Не подошло</button>
+                        </div>
+                    </div>
+                    
                     <div id="reasoningSection" class="reasoning-section" style="display: none;">
                         <h3>💭 Объяснение выбора</h3>
                         <div id="reasoningText" class="reasoning-text"></div>
@@ -55,6 +71,36 @@
             <p>Использует семантический поиск и LLM reasoning для выбора лучшей песни</p>
         </footer>
     </div>
+
+    <!-- Боковое меню истории -->
+    <div id="historySidebar" class="history-sidebar">
+        <div class="sidebar-header">
+            <h2>📜 История поиска</h2>
+            <div class="sidebar-header-actions">
+                <button id="clearHistoryBtn" class="clear-history-btn-header" title="Очистить историю">🗑️</button>
+                <button id="closeHistoryBtn" class="close-sidebar-btn" title="Закрыть">✕</button>
+            </div>
+        </div>
+        <div class="sidebar-content">
+            <div id="historyList" class="history-list"></div>
+        </div>
+    </div>
+
+    <!-- Overlay для затемнения фона -->
+    <div id="sidebarOverlay" class="sidebar-overlay"></div>
+
+    <!-- Модальное окно подтверждения -->
+    <div id="confirmModal" class="confirm-modal">
+        <div class="confirm-modal-content">
+            <h3 id="confirmModalTitle">Подтверждение</h3>
+            <p id="confirmModalMessage">Вы уверены, что хотите выполнить это действие?</p>
+            <div class="confirm-modal-buttons">
+                <button id="confirmModalCancel" class="confirm-btn cancel-btn">Отмена</button>
+                <button id="confirmModalConfirm" class="confirm-btn confirm-btn-primary">Подтвердить</button>
+            </div>
+        </div>
+    </div>
+    <div id="confirmModalOverlay" class="confirm-modal-overlay"></div>
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>

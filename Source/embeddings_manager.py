@@ -9,6 +9,10 @@ import numpy as np
 import faiss
 import requests
 from typing import List, Dict, Any
+from functools import lru_cache
+import hashlib
+import asyncio
+import aiohttp
 
 
 class EmbeddingsManager:
@@ -31,6 +35,8 @@ class EmbeddingsManager:
         
         self.index = None
         self.vectors_metadata = []
+        # Кэш для embeddings запросов
+        self._query_embedding_cache = {}
         
     def _prepare_song_text(self, song: Dict[str, Any]) -> str:
         """
@@ -197,7 +203,7 @@ class EmbeddingsManager:
     
     def get_query_embedding(self, query: str) -> np.ndarray:
         """
-        Создаёт embedding для запроса пользователя.
+        Создаёт embedding для запроса пользователя с кэшированием.
         
         Args:
             query: Текст запроса
@@ -205,6 +211,14 @@ class EmbeddingsManager:
         Returns:
             NumPy массив с embedding
         """
+        # Создаём ключ кэша из запроса
+        cache_key = hashlib.md5(query.encode('utf-8')).hexdigest()
+        
+        # Проверяем кэш
+        if cache_key in self._query_embedding_cache:
+            return self._query_embedding_cache[cache_key]
+        
+        # Если нет в кэше, создаём embedding
         headers = {
             'Content-Type': 'application/json',
             'X-goog-api-key': self.api_key
@@ -221,5 +235,58 @@ class EmbeddingsManager:
             raise Exception(f"Embedding API error {response.status_code}: {error_detail}")
         result = response.json()
         embedding = result["embedding"]["values"]
-        return np.array([embedding]).astype("float32")
+        embedding_array = np.array([embedding]).astype("float32")
+        
+        # Сохраняем в кэш (ограничиваем размер кэша до 1000 записей)
+        if len(self._query_embedding_cache) >= 1000:
+            # Удаляем самую старую запись (FIFO)
+            oldest_key = next(iter(self._query_embedding_cache))
+            del self._query_embedding_cache[oldest_key]
+        
+        self._query_embedding_cache[cache_key] = embedding_array
+        return embedding_array
+    
+    async def get_query_embedding_async(self, query: str, session: aiohttp.ClientSession) -> np.ndarray:
+        """
+        Асинхронная версия создания embedding для запроса.
+        
+        Args:
+            query: Текст запроса
+            session: aiohttp сессия
+            
+        Returns:
+            NumPy массив с embedding
+        """
+        # Проверяем кэш
+        cache_key = hashlib.md5(query.encode('utf-8')).hexdigest()
+        if cache_key in self._query_embedding_cache:
+            return self._query_embedding_cache[cache_key]
+        
+        # Создаём embedding асинхронно
+        headers = {
+            'Content-Type': 'application/json',
+            'X-goog-api-key': self.api_key
+        }
+        payload = {
+            "model": "models/text-embedding-004",
+            "content": {
+                "parts": [{"text": query}]
+            }
+        }
+        
+        async with session.post(self.api_url, headers=headers, json=payload) as response:
+            if response.status != 200:
+                error_detail = await response.text()
+                raise Exception(f"Embedding API error {response.status}: {error_detail}")
+            result = await response.json()
+            embedding = result["embedding"]["values"]
+            embedding_array = np.array([embedding]).astype("float32")
+            
+            # Сохраняем в кэш
+            if len(self._query_embedding_cache) >= 1000:
+                oldest_key = next(iter(self._query_embedding_cache))
+                del self._query_embedding_cache[oldest_key]
+            
+            self._query_embedding_cache[cache_key] = embedding_array
+            return embedding_array
 

@@ -8,6 +8,27 @@ const candidatesList = document.getElementById('candidatesList');
 const selectedSong = document.getElementById('selectedSong');
 const reasoningSection = document.getElementById('reasoningSection');
 const reasoningText = document.getElementById('reasoningText');
+const historySidebar = document.getElementById('historySidebar');
+const sidebarOverlay = document.getElementById('sidebarOverlay');
+const historyMenuBtn = document.getElementById('historyMenuBtn');
+const closeHistoryBtn = document.getElementById('closeHistoryBtn');
+const historyList = document.getElementById('historyList');
+const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+const feedbackSection = document.getElementById('feedbackSection');
+const likeBtn = document.getElementById('likeBtn');
+const dislikeBtn = document.getElementById('dislikeBtn');
+
+// Элементы модального окна подтверждения
+// Элементы модального окна подтверждения
+const confirmModal = document.getElementById('confirmModal');
+const confirmModalOverlay = document.getElementById('confirmModalOverlay');
+const confirmModalTitle = document.getElementById('confirmModalTitle');
+const confirmModalMessage = document.getElementById('confirmModalMessage');
+const confirmModalCancel = document.getElementById('confirmModalCancel');
+const confirmModalConfirm = document.getElementById('confirmModalConfirm');
+
+// Текущий результат для feedback
+let currentSearchResult = null;
 
 // Обработчик отправки формы
 searchForm.addEventListener('submit', async (e) => {
@@ -21,6 +42,110 @@ searchForm.addEventListener('submit', async (e) => {
     
     await searchSongs(query);
 });
+
+// Обработчики для истории поиска
+if (historyMenuBtn) {
+    historyMenuBtn.addEventListener('click', () => {
+        openHistorySidebar();
+    });
+}
+
+if (closeHistoryBtn) {
+    closeHistoryBtn.addEventListener('click', () => {
+        closeHistorySidebar();
+    });
+}
+
+if (sidebarOverlay) {
+    sidebarOverlay.addEventListener('click', () => {
+        closeHistorySidebar();
+    });
+}
+
+if (clearHistoryBtn) {
+    clearHistoryBtn.addEventListener('click', () => {
+        showConfirmModal(
+            'Очистить историю поиска?',
+            'Вы уверены, что хотите очистить всю историю поиска? Это действие нельзя отменить.',
+            () => {
+                localStorage.removeItem('searchHistory');
+                updateSearchHistory();
+                closeConfirmModal();
+            }
+        );
+    });
+}
+
+// Функции для работы с модальным окном подтверждения
+let confirmCallback = null;
+
+function showConfirmModal(title, message, onConfirm) {
+    if (confirmModalTitle) confirmModalTitle.textContent = title;
+    if (confirmModalMessage) confirmModalMessage.textContent = message;
+    confirmCallback = onConfirm;
+    
+    if (confirmModal) confirmModal.classList.add('active');
+    if (confirmModalOverlay) confirmModalOverlay.classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeConfirmModal() {
+    if (confirmModal) confirmModal.classList.remove('active');
+    if (confirmModalOverlay) confirmModalOverlay.classList.remove('active');
+    document.body.style.overflow = '';
+    confirmCallback = null;
+}
+
+// Обработчики для модального окна подтверждения
+if (confirmModalCancel) {
+    confirmModalCancel.addEventListener('click', () => {
+        closeConfirmModal();
+    });
+}
+
+if (confirmModalOverlay) {
+    confirmModalOverlay.addEventListener('click', () => {
+        closeConfirmModal();
+    });
+}
+
+if (confirmModalConfirm) {
+    confirmModalConfirm.addEventListener('click', () => {
+        if (confirmCallback) {
+            confirmCallback();
+        }
+        closeConfirmModal();
+    });
+}
+
+// Функции для открытия/закрытия бокового меню
+function openHistorySidebar() {
+    if (historySidebar) {
+        historySidebar.classList.add('active');
+    }
+    if (sidebarOverlay) {
+        sidebarOverlay.classList.add('active');
+    }
+    document.body.style.overflow = 'hidden'; // Блокируем прокрутку фона
+}
+
+function closeHistorySidebar() {
+    if (historySidebar) {
+        historySidebar.classList.remove('active');
+    }
+    if (sidebarOverlay) {
+        sidebarOverlay.classList.remove('active');
+    }
+    document.body.style.overflow = ''; // Разблокируем прокрутку
+}
+
+// Обработчики для feedback
+if (likeBtn) {
+    likeBtn.addEventListener('click', () => submitFeedback('like'));
+}
+if (dislikeBtn) {
+    dislikeBtn.addEventListener('click', () => submitFeedback('dislike'));
+}
 
 // Функция поиска песен
 async function searchSongs(query) {
@@ -59,6 +184,14 @@ async function searchSongs(query) {
             });
             
             displayResults(data);
+            
+            // Сохраняем в историю
+            saveSearchHistory(query, data);
+            updateSearchHistory();
+            
+            // Сохраняем текущий результат для feedback
+            currentSearchResult = { query, selected: data.selected };
+            
             // Показываем предупреждение, если модели перегружены
             if (data.warning) {
                 showStatus(data.message || 'Модели временно перегружены', 'warning');
@@ -107,6 +240,11 @@ function displayResults(data) {
         reasoningSection.style.display = 'block';
     } else {
         reasoningSection.style.display = 'none';
+    }
+    
+    // Скрываем feedback если нет выбранной песни
+    if (!selected && feedbackSection) {
+        feedbackSection.style.display = 'none';
     }
     
     showResults();
@@ -180,8 +318,33 @@ function createCandidateCard(song, index, selectedSong) {
         ? `<button class="toggle-lyrics-btn" onclick="toggleLyrics(this)">${hasFullLyrics ? '📝 Показать полный текст' : '📝 Показать текст'}</button>`
         : '';
     
+    // Визуализация похожести
+    let similarityHTML = '';
+    if (song.similarity_distance !== undefined) {
+        const similarity = Math.max(0, Math.min(100, (1 - Math.min(song.similarity_distance, 2) / 2) * 100));
+        similarityHTML = `
+            <div class="similarity-container">
+                <div class="similarity-label">Похожесть: ${similarity.toFixed(1)}%</div>
+                <div class="similarity-bar-container">
+                    <div class="similarity-bar" style="width: ${similarity}%"></div>
+                </div>
+            </div>
+        `;
+    } else if (song.hybrid_score !== undefined) {
+        const similarity = song.hybrid_score * 100;
+        similarityHTML = `
+            <div class="similarity-container">
+                <div class="similarity-label">Релевантность: ${similarity.toFixed(1)}%</div>
+                <div class="similarity-bar-container">
+                    <div class="similarity-bar" style="width: ${similarity}%"></div>
+                </div>
+            </div>
+        `;
+    }
+    
     card.innerHTML = `
         <h3>${index}. ${escapeHtml(title)}</h3>
+        ${similarityHTML}
         ${themesHTML}
         ${moodHTML}
         ${lyricsPreview}
@@ -334,6 +497,112 @@ function formatReasoning(text) {
         .replace(/\n/g, '<br>');
 }
 
+// История поиска
+function saveSearchHistory(query, result) {
+    const history = JSON.parse(localStorage.getItem('searchHistory') || '[]');
+    history.unshift({
+        query: query,
+        timestamp: Date.now(),
+        selectedTitle: result.selected?.title || null,
+        // Сохраняем полные результаты для кэширования
+        cachedResult: result
+    });
+    // Храним только последние 10 записей
+    const limitedHistory = history.slice(0, 10);
+    localStorage.setItem('searchHistory', JSON.stringify(limitedHistory));
+}
+
+function updateSearchHistory() {
+    const history = JSON.parse(localStorage.getItem('searchHistory') || '[]');
+    
+    // Показываем всю историю полностью
+    if (historyList) {
+        historyList.innerHTML = '';
+        if (history.length > 0) {
+            history.forEach((item) => {
+                const historyItem = createHistoryItem(item);
+                historyList.appendChild(historyItem);
+            });
+        } else {
+            historyList.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 20px;">История поиска пуста</p>';
+        }
+    }
+}
+
+function createHistoryItem(item) {
+    const historyItem = document.createElement('div');
+    historyItem.className = 'history-item';
+    const date = new Date(item.timestamp);
+    historyItem.innerHTML = `
+        <span class="history-query">${escapeHtml(item.query)}</span>
+        <span class="history-time">${date.toLocaleString('ru-RU')}</span>
+        <button class="history-use-btn" onclick="useHistoryQuery('${escapeHtml(item.query)}')">Использовать</button>
+    `;
+    return historyItem;
+}
+
+function useHistoryQuery(query) {
+    queryInput.value = query;
+    
+    // Закрываем боковое меню
+    closeHistorySidebar();
+    
+    // Проверяем, есть ли кэшированные результаты для этого запроса
+    const history = JSON.parse(localStorage.getItem('searchHistory') || '[]');
+    const cachedEntry = history.find(item => item.query === query && item.cachedResult);
+    
+    if (cachedEntry && cachedEntry.cachedResult) {
+        // Используем кэшированные результаты
+        console.log('📦 Используем кэшированные результаты для:', query);
+        displayResults(cachedEntry.cachedResult);
+        showStatus('Результаты загружены из кэша', 'success');
+        showResults();
+        
+        // Сохраняем текущий результат для feedback
+        currentSearchResult = { query, selected: cachedEntry.cachedResult.selected };
+    } else {
+        // Если кэша нет, делаем новый запрос
+        console.log('🔄 Кэш не найден, делаем новый запрос для:', query);
+        searchSongs(query);
+    }
+}
+
+// Feedback
+async function submitFeedback(feedback) {
+    if (!currentSearchResult || !currentSearchResult.selected) {
+        showStatus('Нет выбранной песни для feedback', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/feedback', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                query: currentSearchResult.query,
+                selected_song_id: currentSearchResult.selected.id || currentSearchResult.selected.title,
+                feedback: feedback
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showStatus(feedback === 'like' ? 'Спасибо за положительный отзыв! 👍' : 'Спасибо за обратную связь! 👎', 'success');
+            // Отключаем кнопки после отправки
+            if (likeBtn) likeBtn.disabled = true;
+            if (dislikeBtn) dislikeBtn.disabled = true;
+        } else {
+            showStatus('Ошибка при отправке feedback', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка при отправке feedback:', error);
+        showStatus('Ошибка при отправке feedback', 'error');
+    }
+}
+
 // Проверка состояния системы при загрузке
 window.addEventListener('load', async () => {
     try {
@@ -348,5 +617,8 @@ window.addEventListener('load', async () => {
     } catch (error) {
         console.error('Ошибка проверки состояния:', error);
     }
+    
+    // Загружаем историю поиска
+    updateSearchHistory();
 });
 
