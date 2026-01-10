@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎵 Поиск песен - RAG система</title>
+    <title>Поиск песен 🎵</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -12,7 +13,6 @@
             <div class="header-content">
                 <div>
                     <h1>🎵 Система выбора песен</h1>
-                    <p class="subtitle">На основе RAG (Retrieval-Augmented Generation)</p>
                 </div>
                 <button id="historyMenuBtn" class="history-menu-btn" title="История поиска">
                     📜 История

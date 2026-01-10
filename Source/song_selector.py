@@ -50,6 +50,9 @@ class SongSelector:
         # Убедимся, что основная модель в списке для попыток
         self.models_to_try = [self.model] + [m for m in self.fallback_models if m != self.model]
         self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        
+        # Храним последнюю успешную модель для приоритетного использования в следующих запросах
+        self.last_successful_model = None
     
     def _format_song_info(self, song: Dict[str, Any], index: int) -> str:
         """
@@ -141,6 +144,7 @@ class SongSelector:
         """
         Пытается выполнить запрос к API, переключаясь между моделями при ошибках.
         При перегрузке модели делает несколько попыток с задержкой перед переключением.
+        Использует последнюю успешную модель в качестве приоритетной для следующего запроса.
         
         Args:
             payload: Тело запроса
@@ -154,7 +158,18 @@ class SongSelector:
         """
         last_error = None
         
-        for model_name in self.models_to_try:
+        # Формируем список моделей для попыток с приоритетом последней успешной
+        models_to_try = []
+        if self.last_successful_model and self.last_successful_model in self.models_to_try:
+            # Начинаем с последней успешной модели
+            models_to_try.append(self.last_successful_model)
+            # Добавляем остальные модели, исключая уже добавленную
+            models_to_try.extend([m for m in self.models_to_try if m != self.last_successful_model])
+        else:
+            # Если нет последней успешной модели, используем стандартный порядок
+            models_to_try = self.models_to_try
+        
+        for model_name in models_to_try:
             # Пытаемся использовать текущую модель с повторными попытками при перегрузке
             for retry in range(self.max_retries + 1):
                 try:
@@ -162,7 +177,8 @@ class SongSelector:
                     response = requests.post(api_url, headers=headers, json=payload)
                     
                     if response.status_code == 200:
-                        # Успешный запрос
+                        # Успешный запрос - сохраняем модель для следующего запроса
+                        self.last_successful_model = model_name
                         if model_name != self.model:
                             print(f"  ⚠️  Переключился на модель: {model_name}")
                         return response.json()
@@ -206,6 +222,96 @@ class SongSelector:
         
         # Все модели не сработали
         raise Exception(f"Все модели недоступны. Последняя ошибка: {last_error}")
+    
+    def enhance_query(self, user_query: str) -> str:
+        """
+        Улучшает запрос пользователя через AI для более точного векторного поиска.
+        Определяет тему, основные мысли и формирует запрос, оптимизированный для поиска песен.
+        
+        Args:
+            user_query: Исходный запрос пользователя
+            
+        Returns:
+            Улучшенный запрос для векторного поиска (или исходный, если произошла ошибка)
+        """
+        prompt = f"""Ты помогаешь улучшить запрос пользователя для поиска христианских песен.
+
+Твоя задача: проанализировать запрос пользователя, определить основную тему, настроение, ключевые мысли и сформировать улучшенный запрос, который будет лучше работать для семантического поиска песен.
+
+Примеры:
+
+Исходный запрос: "мне грустно"
+Улучшенный запрос: "христианская песня про грусть, печаль, одиночество, утешение, поддержку в трудные моменты"
+
+Исходный запрос: "хочу что-то спокойное для вечера"
+Улучшенный запрос: "спокойная христианская песня для вечера, умиротворение, тишина, размышление, покой"
+
+Исходный запрос: "нужна песня про любовь"
+Улучшенный запрос: "христианская песня про любовь, Божья любовь, любовь к ближнему, отношения"
+
+Исходный запрос: "песня для утра"
+Улучшенный запрос: "христианская песня для утра, пробуждение, благодарность, радость, начало дня, прославление"
+
+---
+
+Теперь улучши этот запрос:
+"{user_query}"
+
+Ответь ТОЛЬКО улучшенным запросом, без дополнительных объяснений. Запрос должен быть кратким (1-2 предложения), но содержать ключевые темы, настроение и идеи для лучшего поиска."""
+
+        try:
+            headers = {
+                'Content-Type': 'application/json',
+                'X-goog-api-key': self.api_key
+            }
+            
+            payload = {
+                "contents": [{
+                    "parts": [{"text": prompt}]
+                }],
+                "generationConfig": {
+                    "temperature": 0.3,  # Низкая температура для более детерминированного результата
+                    "maxOutputTokens": 200
+                }
+            }
+            
+            # Используем механизм fallback моделей, но с меньшим количеством попыток
+            # для быстрой предобработки используем только быстрые модели
+            fast_models = [
+                "gemini-2.5-flash-lite",
+                "gemini-2.5-flash",
+                "gemini-2.0-flash-lite",
+                "gemini-2.0-flash"
+            ]
+            
+            last_error = None
+            for model_name in fast_models:
+                try:
+                    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+                    response = requests.post(api_url, headers=headers, json=payload, timeout=10)
+                    
+                    if response.status_code == 200:
+                        result = response.json()
+                        enhanced_query = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+                        # Убираем кавычки, если они есть
+                        enhanced_query = enhanced_query.strip('"').strip("'")
+                        return enhanced_query
+                    else:
+                        last_error = f"{response.status_code}: {response.text[:100]}"
+                        continue
+                        
+                except requests.exceptions.RequestException as e:
+                    last_error = str(e)
+                    continue
+            
+            # Если все модели не сработали, возвращаем исходный запрос
+            print(f"⚠️ Ошибка при улучшении запроса: {last_error}, используем исходный запрос")
+            return user_query
+                
+        except Exception as e:
+            # В случае любой ошибки возвращаем исходный запрос
+            print(f"⚠️ Ошибка при улучшении запроса: {e}, используем исходный запрос")
+            return user_query
     
     def choose_best(
         self, 

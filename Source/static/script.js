@@ -212,7 +212,13 @@ async function searchSongs(query) {
 
 // Отображение результатов
 function displayResults(data) {
-    const { candidates, selected, reasoning } = data;
+    const { candidates, selected, reasoning, enhanced_query } = data;
+    
+    // Отображаем улучшенный запрос, если он был создан
+    if (enhanced_query) {
+        console.log('✨ Запрос был улучшен:', enhanced_query);
+        // Можно добавить визуальное отображение улучшенного запроса
+    }
     
     // Отображаем кандидатов
     candidatesList.innerHTML = '';
@@ -260,6 +266,12 @@ function createCandidateCard(song, index, selectedSong) {
     }
     
     const title = song.title || 'Без названия';
+    
+    // Номер песни из сборника
+    let numberText = '';
+    if (song.number !== undefined) {
+        numberText = `№${song.number}`;
+    }
     
     // Отладка: выводим структуру данных песни
     console.log(`Песня ${index}:`, song);
@@ -318,13 +330,13 @@ function createCandidateCard(song, index, selectedSong) {
         ? `<button class="toggle-lyrics-btn" onclick="toggleLyrics(this)">${hasFullLyrics ? '📝 Показать полный текст' : '📝 Показать текст'}</button>`
         : '';
     
-    // Визуализация похожести
+    // Визуализация соответствия
     let similarityHTML = '';
     if (song.similarity_distance !== undefined) {
         const similarity = Math.max(0, Math.min(100, (1 - Math.min(song.similarity_distance, 2) / 2) * 100));
         similarityHTML = `
             <div class="similarity-container">
-                <div class="similarity-label">Похожесть: ${similarity.toFixed(1)}%</div>
+                <div class="similarity-label">Соответствие: ${similarity.toFixed(1)}%</div>
                 <div class="similarity-bar-container">
                     <div class="similarity-bar" style="width: ${similarity}%"></div>
                 </div>
@@ -343,7 +355,7 @@ function createCandidateCard(song, index, selectedSong) {
     }
     
     card.innerHTML = `
-        <h3>${index}. ${escapeHtml(title)}</h3>
+        <h3>${index}. ${escapeHtml(title)}${numberText ? ` <span class="song-number-inline">(${numberText})</span>` : ''}</h3>
         ${similarityHTML}
         ${themesHTML}
         ${moodHTML}
@@ -407,6 +419,12 @@ function toggleLyrics(button) {
 function createSelectedSongHTML(song) {
     const title = song.title || 'Без названия';
     
+    // Номер песни из сборника
+    let numberText = '';
+    if (song.number !== undefined) {
+        numberText = `№${song.number}`;
+    }
+    
     let themesHTML = '';
     if (song.themes) {
         const themes = Array.isArray(song.themes) ? song.themes : [song.themes];
@@ -438,7 +456,7 @@ function createSelectedSongHTML(song) {
     }
     
     return `
-        <h3>🎵 ${escapeHtml(title)}</h3>
+        <h3>🎵 ${escapeHtml(title)}${numberText ? ` <span class="song-number-inline">(${numberText})</span>` : ''}</h3>
         ${themesHTML}
         ${moodHTML}
         ${lyricsHTML}
@@ -533,10 +551,21 @@ function createHistoryItem(item) {
     const historyItem = document.createElement('div');
     historyItem.className = 'history-item';
     const date = new Date(item.timestamp);
+    // Форматируем дату и время отдельно
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const dateStr = `${day}.${month}.${year}`;
+    const timeStr = `${hours}:${minutes}`;
     historyItem.innerHTML = `
         <span class="history-query">${escapeHtml(item.query)}</span>
-        <span class="history-time">${date.toLocaleString('ru-RU')}</span>
-        <button class="history-use-btn" onclick="useHistoryQuery('${escapeHtml(item.query)}')">Использовать</button>
+        <div class="history-datetime">
+            <span class="history-date">${dateStr}</span>
+            <span class="history-time">${timeStr}</span>
+        </div>
+        <button class="history-use-btn" onclick="useHistoryQuery('${escapeHtml(item.query)}')" title="Использовать">→</button>
     `;
     return historyItem;
 }

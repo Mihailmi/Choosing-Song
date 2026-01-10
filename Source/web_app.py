@@ -40,6 +40,7 @@ class SearchRequest(BaseModel):
     use_hybrid: bool = True
     semantic_weight: float = 0.7
     keyword_weight: float = 0.3
+    enhance_query: bool = True  # Предобработка запроса через AI для улучшения векторного поиска
     
     @field_validator('query')
     @classmethod
@@ -116,6 +117,13 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/favicon.ico')
+def favicon():
+    """Обработчик для favicon."""
+    from flask import send_from_directory
+    return send_from_directory(app.static_folder, 'favicon.svg', mimetype='image/svg+xml')
+
+
 @app.route('/api/search', methods=['POST'])
 @limiter.limit("10 per minute")
 def search_songs():
@@ -131,16 +139,29 @@ def search_songs():
         if search_engine is None or selector is None:
             return jsonify({'error': 'Система не инициализирована'}), 500
         
-        # Поиск кандидатов (hybrid или обычный)
+        # Предобработка запроса через AI для улучшения векторного поиска
+        search_query = search_request.query
+        enhanced_query = None
+        if search_request.enhance_query:
+            try:
+                enhanced_query = selector.enhance_query(search_request.query)
+                if enhanced_query and enhanced_query != search_request.query:
+                    search_query = enhanced_query
+                    print(f"✨ Запрос улучшен:\n  Исходный: {search_request.query}\n  Улучшенный: {enhanced_query}")
+            except Exception as e:
+                print(f"⚠️ Ошибка при улучшении запроса, используем исходный: {e}")
+                search_query = search_request.query
+        
+        # Поиск кандидатов (hybrid или обычный) с улучшенным запросом
         if search_request.use_hybrid and hasattr(search_engine, 'hybrid_search'):
             candidates = search_engine.hybrid_search(
-                search_request.query, 
+                search_query, 
                 k=5,
                 semantic_weight=search_request.semantic_weight,
                 keyword_weight=search_request.keyword_weight
             )
         else:
-            candidates = search_engine.search(search_request.query, k=5)
+            candidates = search_engine.search(search_query, k=5)
         
         # Отладка: выводим структуру данных кандидатов
         print(f"\n🔍 Найдено {len(candidates)} кандидатов:")
@@ -185,7 +206,8 @@ def search_songs():
             'selected': result['song'],
             'reasoning': result.get('reasoning'),
             'confidence': result.get('confidence', 0.5),
-            'message': 'Поиск выполнен успешно'
+            'message': 'Поиск выполнен успешно',
+            'enhanced_query': enhanced_query if search_request.enhance_query else None
         }
         
         return jsonify(response)
