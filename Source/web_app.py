@@ -140,14 +140,34 @@ def search_songs():
             return jsonify({'error': 'Система не инициализирована'}), 500
         
         # Предобработка запроса через AI для улучшения векторного поиска
+        # Для векторного поиска используем: исходный запрос + уточнение от ИИ
         search_query = search_request.query
-        enhanced_query = None
+        enhanced_data = None
+        
         if search_request.enhance_query:
             try:
-                enhanced_query = selector.enhance_query(search_request.query)
-                if enhanced_query and enhanced_query != search_request.query:
-                    search_query = enhanced_query
-                    print(f"✨ Запрос улучшен:\n  Исходный: {search_request.query}\n  Улучшенный: {enhanced_query}")
+                enhanced_data = selector.enhance_query(search_request.query)
+                if enhanced_data and isinstance(enhanced_data, dict):
+                    enhanced_query = enhanced_data.get("enhanced_query", "").strip()
+                    
+                    # Дополнительная валидация: проверяем, что enhanced_query валидный
+                    if enhanced_query and enhanced_query != search_request.query:
+                        # Проверяем, что это не служебный текст
+                        if (len(enhanced_query) < 500 and 
+                            "here is" not in enhanced_query.lower()[:100] and
+                            "json" not in enhanced_query.lower()[:50] and
+                            "```" not in enhanced_query):
+                            # Комбинируем исходный запрос + уточнение от ИИ
+                            search_query = f"{search_request.query} {enhanced_query}"
+                            print(f"✨ Запрос для поиска:\n  Исходный: {search_request.query}\n  Уточнение: {enhanced_query}\n  Комбинированный: {search_query}")
+                        else:
+                            print(f"⚠️ Улучшенный запрос содержит служебный текст, используем исходный запрос")
+                            search_query = search_request.query
+                else:
+                    # Обратная совместимость со старым форматом (строка)
+                    if isinstance(enhanced_data, str) and enhanced_data != search_request.query:
+                        search_query = f"{search_request.query} {enhanced_data}"
+                        print(f"✨ Запрос для поиска:\n  Исходный: {search_request.query}\n  Уточнение: {enhanced_data}\n  Комбинированный: {search_query}")
             except Exception as e:
                 print(f"⚠️ Ошибка при улучшении запроса, используем исходный: {e}")
                 search_query = search_request.query
@@ -181,19 +201,32 @@ def search_songs():
                 'message': 'Не найдено подходящих песен'
             })
         
-        # Выбор лучшей песни через LLM
+        # Выбор лучшей песни через LLM (используем ТОЛЬКО исходный запрос пользователя)
         try:
             result = selector.choose_best(search_request.query, candidates)
         except Exception as e:
             error_msg = str(e)
-            # Если все модели перегружены, возвращаем кандидатов без выбранной песни
-            if "недоступны" in error_msg or "overloaded" in error_msg.lower():
-                print(f"⚠️ Все модели перегружены, возвращаем кандидатов без выбора: {e}")
+            # Если все модели перегружены или недоступны, возвращаем кандидатов без выбранной песни
+            if ("недоступны" in error_msg or 
+                "overloaded" in error_msg.lower() or 
+                "перегружены" in error_msg.lower() or
+                "Все модели" in error_msg):
+                print(f"⚠️ Все модели недоступны/перегружены, возвращаем кандидатов без выбора: {e}")
                 return jsonify({
                     'candidates': candidates,
                     'selected': None,
                     'reasoning': None,
-                    'message': 'Модели временно перегружены. Показаны найденные кандидаты, но выбор лучшей песни недоступен. Попробуйте позже.',
+                    'message': 'Модели временно недоступны. Показаны найденные кандидаты, но выбор лучшей песни недоступен. Попробуйте позже.',
+                    'warning': True
+                })
+            elif "квота" in error_msg.lower() or "quota" in error_msg.lower():
+                # Превышена квота API
+                print(f"⚠️ Превышена квота API, возвращаем кандидатов без выбора: {e}")
+                return jsonify({
+                    'candidates': candidates,
+                    'selected': None,
+                    'reasoning': None,
+                    'message': 'Превышена квота API. Показаны найденные кандидаты, но выбор лучшей песни недоступен. Попробуйте позже.',
                     'warning': True
                 })
             else:
@@ -201,13 +234,20 @@ def search_songs():
                 raise
         
         # Форматирование ответа
+        enhanced_query_value = None
+        if search_request.enhance_query and enhanced_data:
+            if isinstance(enhanced_data, dict):
+                enhanced_query_value = enhanced_data.get("enhanced_query")
+            elif isinstance(enhanced_data, str):
+                enhanced_query_value = enhanced_data
+        
         response = {
             'candidates': candidates,
             'selected': result['song'],
             'reasoning': result.get('reasoning'),
             'confidence': result.get('confidence', 0.5),
             'message': 'Поиск выполнен успешно',
-            'enhanced_query': enhanced_query if search_request.enhance_query else None
+            'enhanced_query': enhanced_query_value
         }
         
         return jsonify(response)

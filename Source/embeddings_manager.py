@@ -29,9 +29,10 @@ class EmbeddingsManager:
         if not self.api_key:
             raise ValueError("GOOGLE_API_KEY не установлен")
 
-        # Используем REST API напрямую
-        self.api_url = "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent"
-        self.dimension = 768  # Размерность для text-embedding-004
+        # Используем REST API напрямую (официальная модель: gemini-embedding-001)
+        self.embed_model = "models/gemini-embedding-001"
+        self.api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent"
+        self.dimension = 768  # outputDimensionality для совместимости с индексом
         
         self.index = None
         self.vectors_metadata = []
@@ -107,10 +108,9 @@ class EmbeddingsManager:
                     'X-goog-api-key': self.api_key
                 }
                 payload = {
-                    "model": "models/text-embedding-004",
-                    "content": {
-                        "parts": [{"text": text}]
-                    }
+                    "model": self.embed_model,
+                    "content": {"parts": [{"text": text}]},
+                    "outputDimensionality": self.dimension,
                 }
                 response = requests.post(self.api_url, headers=headers, json=payload)
                 if response.status_code != 200:
@@ -224,10 +224,9 @@ class EmbeddingsManager:
             'X-goog-api-key': self.api_key
         }
         payload = {
-            "model": "models/text-embedding-004",
-            "content": {
-                "parts": [{"text": query}]
-            }
+            "model": self.embed_model,
+            "content": {"parts": [{"text": query}]},
+            "outputDimensionality": self.dimension,
         }
         response = requests.post(self.api_url, headers=headers, json=payload)
         if response.status_code != 200:
@@ -268,12 +267,10 @@ class EmbeddingsManager:
             'X-goog-api-key': self.api_key
         }
         payload = {
-            "model": "models/text-embedding-004",
-            "content": {
-                "parts": [{"text": query}]
-            }
+            "model": self.embed_model,
+            "content": {"parts": [{"text": query}]},
+            "outputDimensionality": self.dimension,
         }
-        
         async with session.post(self.api_url, headers=headers, json=payload) as response:
             if response.status != 200:
                 error_detail = await response.text()

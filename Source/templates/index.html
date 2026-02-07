@@ -32,15 +32,15 @@
                         >
                         <button type="submit" id="searchBtn" class="search-btn">
                             <span class="btn-text">Найти</span>
-                            <span class="btn-loader" style="display: none;">⏳</span>
+                            <span class="btn-loader">⏳</span>
                         </button>
                     </div>
                 </form>
             </div>
 
-            <div id="statusMessage" class="status-message" style="display: none;"></div>
+            <div id="statusMessage" class="status-message hidden"></div>
 
-            <div id="resultsSection" class="results-section" style="display: none;">
+            <div id="resultsSection" class="results-section hidden">
                 <div class="candidates-section">
                     <h2>📋 Найденные кандидаты</h2>
                     <div id="candidatesList" class="candidates-list"></div>
@@ -50,16 +50,7 @@
                     <h2>⭐ Выбранная песня</h2>
                     <div id="selectedSong" class="selected-song"></div>
                     
-                    <!-- Feedback кнопки -->
-                    <div id="feedbackSection" class="feedback-section" style="display: none;">
-                        <p>Помогла ли вам эта песня?</p>
-                        <div class="feedback-buttons">
-                            <button id="likeBtn" class="feedback-btn like-btn">👍 Понравилось</button>
-                            <button id="dislikeBtn" class="feedback-btn dislike-btn">👎 Не подошло</button>
-                        </div>
-                    </div>
-                    
-                    <div id="reasoningSection" class="reasoning-section" style="display: none;">
+                    <div id="reasoningSection" class="reasoning-section hidden">
                         <h3>💭 Объяснение выбора</h3>
                         <div id="reasoningText" class="reasoning-text"></div>
                     </div>

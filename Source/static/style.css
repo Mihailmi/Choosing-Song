@@ -164,6 +164,18 @@ header h1 {
     cursor: not-allowed;
 }
 
+.btn-loader {
+    display: none;
+}
+
+.btn-loader.show {
+    display: inline;
+}
+
+.btn-text.hide {
+    display: none;
+}
+
 .status-message {
     max-width: 800px;
     margin: 20px auto;
@@ -171,6 +183,10 @@ header h1 {
     border-radius: 8px;
     text-align: center;
     font-weight: 500;
+}
+
+.hidden {
+    display: none !important;
 }
 
 .status-message.success {

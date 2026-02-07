@@ -14,9 +14,6 @@ const historyMenuBtn = document.getElementById('historyMenuBtn');
 const closeHistoryBtn = document.getElementById('closeHistoryBtn');
 const historyList = document.getElementById('historyList');
 const clearHistoryBtn = document.getElementById('clearHistoryBtn');
-const feedbackSection = document.getElementById('feedbackSection');
-const likeBtn = document.getElementById('likeBtn');
-const dislikeBtn = document.getElementById('dislikeBtn');
 
 // Элементы модального окна подтверждения
 // Элементы модального окна подтверждения
@@ -27,7 +24,6 @@ const confirmModalMessage = document.getElementById('confirmModalMessage');
 const confirmModalCancel = document.getElementById('confirmModalCancel');
 const confirmModalConfirm = document.getElementById('confirmModalConfirm');
 
-// Текущий результат для feedback
 let currentSearchResult = null;
 
 // Обработчик отправки формы
@@ -139,14 +135,6 @@ function closeHistorySidebar() {
     document.body.style.overflow = ''; // Разблокируем прокрутку
 }
 
-// Обработчики для feedback
-if (likeBtn) {
-    likeBtn.addEventListener('click', () => submitFeedback('like'));
-}
-if (dislikeBtn) {
-    dislikeBtn.addEventListener('click', () => submitFeedback('dislike'));
-}
-
 // Функция поиска песен
 async function searchSongs(query) {
     // Показываем загрузку
@@ -189,7 +177,6 @@ async function searchSongs(query) {
             saveSearchHistory(query, data);
             updateSearchHistory();
             
-            // Сохраняем текущий результат для feedback
             currentSearchResult = { query, selected: data.selected };
             
             // Показываем предупреждение, если модели перегружены
@@ -243,14 +230,9 @@ function displayResults(data) {
     // Отображаем объяснение
     if (reasoning) {
         reasoningText.textContent = reasoning;
-        reasoningSection.style.display = 'block';
+        reasoningSection.classList.remove('hidden');
     } else {
-        reasoningSection.style.display = 'none';
-    }
-    
-    // Скрываем feedback если нет выбранной песни
-    if (!selected && feedbackSection) {
-        feedbackSection.style.display = 'none';
+        reasoningSection.classList.add('hidden');
     }
     
     showResults();
@@ -472,30 +454,30 @@ function setLoading(loading) {
     const btnLoader = searchBtn.querySelector('.btn-loader');
     
     if (loading) {
-        btnText.style.display = 'none';
-        btnLoader.style.display = 'inline';
+        btnText.classList.add('hide');
+        btnLoader.classList.add('show');
     } else {
-        btnText.style.display = 'inline';
-        btnLoader.style.display = 'none';
+        btnText.classList.remove('hide');
+        btnLoader.classList.remove('show');
     }
 }
 
 function showStatus(message, type = 'info') {
     statusMessage.textContent = message;
     statusMessage.className = `status-message ${type}`;
-    statusMessage.style.display = 'block';
+    statusMessage.classList.remove('hidden');
 }
 
 function hideStatus() {
-    statusMessage.style.display = 'none';
+    statusMessage.classList.add('hidden');
 }
 
 function showResults() {
-    resultsSection.style.display = 'block';
+    resultsSection.classList.remove('hidden');
 }
 
 function hideResults() {
-    resultsSection.style.display = 'none';
+    resultsSection.classList.add('hidden');
 }
 
 function escapeHtml(text) {
@@ -587,48 +569,11 @@ function useHistoryQuery(query) {
         showStatus('Результаты загружены из кэша', 'success');
         showResults();
         
-        // Сохраняем текущий результат для feedback
         currentSearchResult = { query, selected: cachedEntry.cachedResult.selected };
     } else {
         // Если кэша нет, делаем новый запрос
         console.log('🔄 Кэш не найден, делаем новый запрос для:', query);
         searchSongs(query);
-    }
-}
-
-// Feedback
-async function submitFeedback(feedback) {
-    if (!currentSearchResult || !currentSearchResult.selected) {
-        showStatus('Нет выбранной песни для feedback', 'error');
-        return;
-    }
-    
-    try {
-        const response = await fetch('/api/feedback', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                query: currentSearchResult.query,
-                selected_song_id: currentSearchResult.selected.id || currentSearchResult.selected.title,
-                feedback: feedback
-            })
-        });
-        
-        const data = await response.json();
-        
-        if (response.ok) {
-            showStatus(feedback === 'like' ? 'Спасибо за положительный отзыв! 👍' : 'Спасибо за обратную связь! 👎', 'success');
-            // Отключаем кнопки после отправки
-            if (likeBtn) likeBtn.disabled = true;
-            if (dislikeBtn) dislikeBtn.disabled = true;
-        } else {
-            showStatus('Ошибка при отправке feedback', 'error');
-        }
-    } catch (error) {
-        console.error('Ошибка при отправке feedback:', error);
-        showStatus('Ошибка при отправке feedback', 'error');
     }
 }
 

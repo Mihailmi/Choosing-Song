@@ -144,7 +144,7 @@ python main.py
 ## 🧠 Используемые модели
 
 ### Embeddings
-- **Google text-embedding-004** (768 размерность)
+- **Google embedding-001** (768 размерность)
 - Можно заменить на bge-large, E5-large (open-source)
 
 ### LLM

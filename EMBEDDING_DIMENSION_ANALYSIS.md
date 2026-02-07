@@ -2,17 +2,17 @@
 
 ## Текущая конфигурация
 
-- **Модель**: Google `text-embedding-004`
+- **Модель**: Google `embedding-001`
 - **Размерность**: 768 чисел
 - **Использование**: FAISS IndexFlatL2 для векторного поиска
 
 ---
 
-## Доступные опции для text-embedding-004
+## Доступные опции для embedding-001
 
 ### Поддержка outputDimensionality
 
-Google `text-embedding-004` **поддерживает параметр `outputDimensionality`** в запросе, который позволяет изменять размерность выходного вектора.
+Google `embedding-001` **может поддерживать параметр `outputDimensionality`** в запросе, который позволяет изменять размерность выходного вектора (требует проверки).
 
 **Доступные размерности:**
 - **768** (по умолчанию, текущая)
@@ -23,7 +23,7 @@ Google `text-embedding-004` **поддерживает параметр `outputD
 
 ```python
 payload = {
-    "model": "models/text-embedding-004",
+    "model": "models/embedding-001",
     "content": {
         "parts": [{"text": text}]
     },
@@ -82,7 +82,7 @@ payload = {
 
 ## Стоимость API
 
-### Google text-embedding-004 цены:
+### Google embedding-001 цены:
 
 - **Стоимость не зависит от размерности!** ✅
 - Цена фиксирована: ~$0.0001 за 1000 токенов входного текста
@@ -138,7 +138,7 @@ self.dimension = 1024
 
 # В payload добавить:
 payload = {
-    "model": "models/text-embedding-004",
+    "model": "models/embedding-001",
     "content": {
         "parts": [{"text": text}]
     },

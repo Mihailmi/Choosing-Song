@@ -32,15 +32,14 @@ class SongSelector:
         self.model = model
         self.max_retries = max_retries
         # Резервные модели по умолчанию (от быстрых к более мощным)
+        # Убраны недоступные модели: gemini-1.5-flash, gemini-1.5-pro (404 ошибка)
         if fallback_models is None:
             self.fallback_models = [
                 "gemini-2.5-flash-lite",
                 "gemini-2.5-flash",
                 "gemini-2.0-flash-lite",
                 "gemini-2.0-flash",
-                "gemini-1.5-flash",
                 "gemini-2.5-pro",
-                "gemini-1.5-pro",
                 "gemini-flash-latest",
                 "gemini-pro-latest"
             ]
@@ -91,9 +90,30 @@ class SongSelector:
         
         return info
     
+    def _is_quota_error(self, response: requests.Response) -> bool:
+        """
+        Проверяет, является ли ошибка ошибкой превышения квоты (не перегрузка).
+        
+        Args:
+            response: Ответ от API
+            
+        Returns:
+            True, если это ошибка квоты
+        """
+        error_text = response.text.lower()
+        status_code = response.status_code
+        
+        return (
+            status_code == 429 and (
+                "quota" in error_text or
+                "exceeded" in error_text or
+                "billing" in error_text
+            )
+        )
+    
     def _is_overload_error(self, response: requests.Response) -> bool:
         """
-        Проверяет, является ли ошибка ошибкой перегрузки модели.
+        Проверяет, является ли ошибка ошибкой перегрузки модели (временная).
         
         Args:
             response: Ответ от API
@@ -104,8 +124,9 @@ class SongSelector:
         error_text = response.text.lower()
         status_code = response.status_code
         
-        # Проверяем статус коды, указывающие на перегрузку
-        is_overload_status = status_code in [429, 503, 500]
+        # 429 без quota - это rate limit (перегрузка)
+        # 503, 500 - перегрузка сервера
+        is_overload_status = status_code in [503, 500] or (status_code == 429 and not self._is_quota_error(response))
         
         # Проверяем текст ошибки
         is_overload_text = (
@@ -143,7 +164,8 @@ class SongSelector:
     def _try_request_with_fallback(self, payload: Dict[str, Any], headers: Dict[str, str]) -> Dict[str, Any]:
         """
         Пытается выполнить запрос к API, переключаясь между моделями при ошибках.
-        При перегрузке модели делает несколько попыток с задержкой перед переключением.
+        При перегрузке сразу переключается на другую модель.
+        Если все модели перегружены, делает повторные попытки для всех моделей.
         Использует последнюю успешную модель в качестве приоритетной для следующего запроса.
         
         Args:
@@ -169,95 +191,120 @@ class SongSelector:
             # Если нет последней успешной модели, используем стандартный порядок
             models_to_try = self.models_to_try
         
+        # Сначала пробуем все модели один раз
+        overloaded_models = []  # Модели, которые перегружены
+        quota_exceeded_models = []  # Модели, у которых превышена квота
         for model_name in models_to_try:
-            # Пытаемся использовать текущую модель с повторными попытками при перегрузке
-            for retry in range(self.max_retries + 1):
-                try:
-                    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
-                    response = requests.post(api_url, headers=headers, json=payload)
+            try:
+                api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+                response = requests.post(api_url, headers=headers, json=payload)
+                
+                if response.status_code == 200:
+                    # Успешный запрос - сохраняем модель для следующего запроса
+                    self.last_successful_model = model_name
+                    if model_name != self.model:
+                        print(f"  ⚠️  Переключился на модель: {model_name}")
+                    return response.json()
+                
+                # Обработка ошибок
+                if self._is_quota_error(response):
+                    # Превышена квота для этой модели - пробуем следующую
+                    quota_exceeded_models.append((model_name, response))
+                    print(f"  ⚠️  Модель {model_name} превысила квоту, пробуем следующую...")
+                    last_error = f"{response.status_code}: Превышена квота для {model_name}"
+                    continue
+                
+                elif self._is_overload_error(response):
+                    # Модель перегружена - сохраняем для повторных попыток позже
+                    overloaded_models.append((model_name, response))
+                    print(f"  ⏳ Модель {model_name} перегружена, пробуем следующую...")
+                    continue
+                
+                elif self._is_model_error(response):
+                    # Ошибка модели (не найдена, не поддерживается) - пропускаем
+                    last_error = f"{response.status_code}: {response.text[:200]}"
+                    print(f"  ⚠️  Модель {model_name} недоступна, пробуем следующую...")
+                    continue
+                
+                else:
+                    # Другая ошибка (авторизация и т.д.) - пробрасываем
+                    error_msg = response.text[:500] if len(response.text) > 500 else response.text
+                    raise Exception(f"{response.status_code}: {error_msg}")
                     
-                    if response.status_code == 200:
-                        # Успешный запрос - сохраняем модель для следующего запроса
-                        self.last_successful_model = model_name
-                        if model_name != self.model:
-                            print(f"  ⚠️  Переключился на модель: {model_name}")
-                        return response.json()
-                    
-                    # Обработка ошибок
-                    if self._is_overload_error(response):
-                        # Модель перегружена - делаем повторную попытку с задержкой
-                        if retry < self.max_retries:
-                            wait_time = (retry + 1) * 2  # Экспоненциальная задержка: 2, 4, 6 секунд
-                            print(f"  ⏳ Модель {model_name} перегружена, повторная попытка через {wait_time} сек... (попытка {retry + 1}/{self.max_retries})")
-                            time.sleep(wait_time)
-                            continue
-                        else:
-                            # Исчерпаны попытки для этой модели, пробуем следующую
-                            last_error = f"{response.status_code}: {response.text[:200]}"
-                            print(f"  ⚠️  Модель {model_name} перегружена после {self.max_retries + 1} попыток, пробуем следующую...")
-                            break
-                    
-                    elif self._is_model_error(response):
-                        # Ошибка модели (не найдена, не поддерживается) - сразу пробуем следующую
-                        last_error = f"{response.status_code}: {response.text[:200]}"
-                        print(f"  ⚠️  Модель {model_name} недоступна, пробуем следующую...")
-                        break
-                    
-                    else:
-                        # Другая ошибка (квота, авторизация и т.д.) - пробрасываем
-                        error_msg = response.text[:500] if len(response.text) > 500 else response.text
-                        raise Exception(f"{response.status_code}: {error_msg}")
+            except requests.exceptions.RequestException as e:
+                # Сетевая ошибка - пропускаем эту модель
+                last_error = str(e)
+                print(f"  ⚠️  Сетевая ошибка для {model_name}, пробуем следующую модель...")
+                continue
+        
+        # Если все модели превысили квоту (и нет перегруженных) - пробрасываем ошибку
+        if quota_exceeded_models and not overloaded_models:
+            error_msg = f"Превышена квота для всех моделей: {', '.join([m[0] for m in quota_exceeded_models])}"
+            raise Exception(error_msg)
+        
+        # Если все модели перегружены, делаем повторные попытки
+        if overloaded_models:
+            print(f"  ⚠️  Все модели перегружены, делаем повторные попытки...")
+            for retry in range(self.max_retries):
+                wait_time = (retry + 1) * 2  # Экспоненциальная задержка: 2, 4, 6 секунд
+                print(f"  ⏳ Повторная попытка через {wait_time} сек... (попытка {retry + 1}/{self.max_retries})")
+                time.sleep(wait_time)
+                
+                # Пробуем все перегруженные модели снова
+                for model_name, _ in overloaded_models:
+                    try:
+                        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+                        response = requests.post(api_url, headers=headers, json=payload)
                         
-                except requests.exceptions.RequestException as e:
-                    # Сетевая ошибка
-                    if retry < self.max_retries:
-                        wait_time = (retry + 1) * 1
-                        print(f"  ⏳ Сетевая ошибка для {model_name}, повторная попытка через {wait_time} сек...")
-                        time.sleep(wait_time)
-                        continue
-                    else:
+                        if response.status_code == 200:
+                            self.last_successful_model = model_name
+                            if model_name != self.model:
+                                print(f"  ⚠️  Переключился на модель: {model_name}")
+                            return response.json()
+                        
+                        if not self._is_overload_error(response):
+                            # Если это не перегрузка, пробрасываем ошибку
+                            error_msg = response.text[:500] if len(response.text) > 500 else response.text
+                            raise Exception(f"{response.status_code}: {error_msg}")
+                            
+                    except requests.exceptions.RequestException as e:
                         last_error = str(e)
-                        print(f"  ⚠️  Сетевая ошибка для {model_name}, пробуем следующую модель...")
-                        break
+                        continue
         
         # Все модели не сработали
         raise Exception(f"Все модели недоступны. Последняя ошибка: {last_error}")
     
-    def enhance_query(self, user_query: str) -> str:
+    def enhance_query(self, user_query: str) -> Dict[str, Any]:
         """
         Улучшает запрос пользователя через AI для более точного векторного поиска.
-        Определяет тему, основные мысли и формирует запрос, оптимизированный для поиска песен.
+        Определяет тему, настроение, ключевые мысли и формирует запрос, оптимизированный для поиска песен.
         
         Args:
             user_query: Исходный запрос пользователя
             
         Returns:
-            Улучшенный запрос для векторного поиска (или исходный, если произошла ошибка)
+            Словарь с:
+            - enhanced_query: Улучшенный запрос для векторного поиска
+            - theme: Основная тема запроса
+            - mood: Настроение запроса
+            - keywords: Ключевые слова/мысли
+            Или исходный запрос в enhanced_query, если произошла ошибка
         """
-        prompt = f"""Ты помогаешь улучшить запрос пользователя для поиска христианских песен.
-
-Твоя задача: проанализировать запрос пользователя, определить основную тему, настроение, ключевые мысли и сформировать улучшенный запрос, который будет лучше работать для семантического поиска песен.
+        prompt = f"""Улучши запрос пользователя для поиска христианских песен. Определи тему, настроение, ключевые слова и сформируй улучшенный запрос.
 
 Примеры:
+"мне грустно" → тема: грусть/утешение, настроение: грустное, keywords: одиночество/поддержка, enhanced_query: "христианская песня про грусть, печаль, одиночество, утешение, поддержку"
+"хочу спокойное для вечера" → тема: покой/размышление, настроение: спокойное, keywords: вечер/тишина, enhanced_query: "спокойная христианская песня для вечера, умиротворение, тишина, покой"
 
-Исходный запрос: "мне грустно"
-Улучшенный запрос: "христианская песня про грусть, печаль, одиночество, утешение, поддержку в трудные моменты"
+Запрос: "{user_query}"
 
-Исходный запрос: "хочу что-то спокойное для вечера"
-Улучшенный запрос: "спокойная христианская песня для вечера, умиротворение, тишина, размышление, покой"
-
-Исходный запрос: "нужна песня про любовь"
-Улучшенный запрос: "христианская песня про любовь, Божья любовь, любовь к ближнему, отношения"
-
-Исходный запрос: "песня для утра"
-Улучшенный запрос: "христианская песня для утра, пробуждение, благодарность, радость, начало дня, прославление"
-
----
-
-Теперь улучши этот запрос:
-"{user_query}"
-
-Ответь ТОЛЬКО улучшенным запросом, без дополнительных объяснений. Запрос должен быть кратким (1-2 предложения), но содержать ключевые темы, настроение и идеи для лучшего поиска."""
+Верни ТОЛЬКО JSON без текста/комментариев/markdown:
+{{
+  "theme": "тема",
+  "mood": "настроение",
+  "keywords": "ключевые слова",
+  "enhanced_query": "улучшенный запрос"
+}}"""
 
         try:
             headers = {
@@ -271,7 +318,30 @@ class SongSelector:
                 }],
                 "generationConfig": {
                     "temperature": 0.3,  # Низкая температура для более детерминированного результата
-                    "maxOutputTokens": 200
+                    "maxOutputTokens": 300,
+                    "responseMimeType": "application/json",
+                    "responseSchema": {
+                        "type": "object",
+                        "properties": {
+                            "theme": {
+                                "type": "string",
+                                "description": "Основная тема запроса"
+                            },
+                            "mood": {
+                                "type": "string",
+                                "description": "Настроение запроса"
+                            },
+                            "keywords": {
+                                "type": "string",
+                                "description": "Ключевые слова через запятую"
+                            },
+                            "enhanced_query": {
+                                "type": "string",
+                                "description": "Улучшенный запрос для векторного поиска"
+                            }
+                        },
+                        "required": ["theme", "mood", "keywords", "enhanced_query"]
+                    }
                 }
             }
             
@@ -292,10 +362,55 @@ class SongSelector:
                     
                     if response.status_code == 200:
                         result = response.json()
-                        enhanced_query = result["candidates"][0]["content"]["parts"][0]["text"].strip()
-                        # Убираем кавычки, если они есть
-                        enhanced_query = enhanced_query.strip('"').strip("'")
-                        return enhanced_query
+                        response_text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+                        
+                        # Парсим JSON ответ
+                        try:
+                            # Пытаемся извлечь JSON из текста (если есть markdown код блоки или префикс)
+                            json_text = response_text
+                            
+                            # Убираем markdown код блоки, если есть
+                            if "```json" in json_text:
+                                json_text = json_text.split("```json")[1].split("```")[0].strip()
+                            elif "```" in json_text:
+                                json_text = json_text.split("```")[1].split("```")[0].strip()
+                            
+                            # Убираем префиксы типа "Here is the JSON requested:"
+                            lines = json_text.split('\n')
+                            json_start = 0
+                            for i, line in enumerate(lines):
+                                if line.strip().startswith('{'):
+                                    json_start = i
+                                    break
+                            json_text = '\n'.join(lines[json_start:]).strip()
+                            
+                            parsed = json.loads(json_text)
+                            enhanced_query = parsed.get("enhanced_query", "").strip()
+                            
+                            # Валидация: проверяем, что enhanced_query не содержит служебного текста
+                            if not enhanced_query or enhanced_query == user_query:
+                                enhanced_query = user_query
+                            elif len(enhanced_query) > 500:  # Слишком длинный - вероятно, весь ответ модели
+                                enhanced_query = user_query
+                            elif "here is" in enhanced_query.lower() or "json" in enhanced_query.lower()[:50]:
+                                # Содержит служебный текст - используем исходный запрос
+                                enhanced_query = user_query
+                            
+                            return {
+                                "enhanced_query": enhanced_query,
+                                "theme": parsed.get("theme", "").strip(),
+                                "mood": parsed.get("mood", "").strip(),
+                                "keywords": parsed.get("keywords", "").strip()
+                            }
+                        except (json.JSONDecodeError, KeyError, IndexError) as e:
+                            # Если не удалось распарсить, возвращаем исходный запрос
+                            print(f"⚠️ Не удалось распарсить ответ модели: {e}")
+                            return {
+                                "enhanced_query": user_query,
+                                "theme": "",
+                                "mood": "",
+                                "keywords": ""
+                            }
                     else:
                         last_error = f"{response.status_code}: {response.text[:100]}"
                         continue
@@ -306,12 +421,22 @@ class SongSelector:
             
             # Если все модели не сработали, возвращаем исходный запрос
             print(f"⚠️ Ошибка при улучшении запроса: {last_error}, используем исходный запрос")
-            return user_query
+            return {
+                "enhanced_query": user_query,
+                "theme": "",
+                "mood": "",
+                "keywords": ""
+            }
                 
         except Exception as e:
             # В случае любой ошибки возвращаем исходный запрос
             print(f"⚠️ Ошибка при улучшении запроса: {e}, используем исходный запрос")
-            return user_query
+            return {
+                "enhanced_query": user_query,
+                "theme": "",
+                "mood": "",
+                "keywords": ""
+            }
     
     def choose_best(
         self, 
@@ -323,7 +448,7 @@ class SongSelector:
         Выбирает лучшую песню из кандидатов на основе запроса пользователя.
         
         Args:
-            user_query: Запрос пользователя
+            user_query: Исходный запрос пользователя (используется как есть, без дополнений)
             candidates: Список кандидатов (песен)
             return_reasoning: Возвращать ли объяснение выбора
             
@@ -339,49 +464,21 @@ class SongSelector:
             candidates_text += self._format_song_info(song, idx)
         
         # Создание промпта с Few-shot Learning
-        prompt = f"""Ты христианский эксперт по выбору христианской музыки, который помогает христианским пользователям найти идеальную песню для их настроения и ситуации.
+        # Используем ТОЛЬКО исходный запрос пользователя для более точного понимания его намерения
+        prompt = f"""Ты христианский эксперт, выбери лучшую христианскую песню из кандидатов для запроса пользователя.
 
-Примеры правильных ответов:
-
+Пример:
 Запрос: "Хочу спокойную песню для вечера"
-Кандидаты:
-1. Название: Тихая ночь
-   Текст: Спокойная мелодия для вечернего времени...
-   Настроение: спокойная, умиротворённая
-2. Название: Утренняя радость
-   Текст: Энергичная песня для начала дня...
-   Настроение: энергичная, радостная
+1. Тихая ночь (спокойная, умиротворённая)
+2. Утренняя радость (энергичная, радостная)
 ВЫБОР: 1
-ОБЪЯСНЕНИЕ: Песня "Тихая ночь" идеально подходит для вечера, так как она спокойная и создаёт атмосферу умиротворения, что соответствует запросу пользователя.
+ОБЪЯСНЕНИЕ: "Тихая ночь" подходит для вечера - спокойная и умиротворённая.
 
----
-
-Запрос: "Нужна песня про любовь и расставание"
+Запрос: "{user_query}"
 Кандидаты:
-1. Название: Прощание
-   Текст: Текст о расставании с любимым...
-   Темы: любовь, расставание
-2. Название: Новая встреча
-   Текст: Песня о новой любви...
-   Темы: любовь, надежда
-ВЫБОР: 1
-ОБЪЯСНЕНИЕ: Песня "Прощание" наиболее точно соответствует запросу, так как она сочетает темы любви и расставания, что точно отражает желание пользователя.
-
----
-
-Теперь выбери для этого запроса:
-"{user_query}"
-
-Вот несколько подходящих христианских песен, найденных по смыслу:
 {candidates_text}
 
-Твоя задача:
-1. Выбери ОДНУ лучшую христианскую песню, которая наиболее точно соответствует запросу пользователя
-2. Объясни, почему именно эта христианская песня подходит лучше всего
-
-Ответь в следующем формате:
-ВЫБОР: [номер песни]
-ОБЪЯСНЕНИЕ: [подробное объяснение, почему эта христианская песня лучше всего подходит запросу пользователя]"""
+Выбери ОДНУ песню, наиболее соответствующую запросу, и объясни почему."""
 
         try:
             # Формируем полный промпт
@@ -527,36 +624,20 @@ class SongSelector:
             candidates_text += self._format_song_info(song, idx)
         
         # Создание промпта (тот же, что и в синхронной версии)
-        prompt = f"""Ты христианский эксперт по выбору христианской музыки, который помогает христианским пользователям найти идеальную песню для их настроения и ситуации.
+        prompt = f"""Ты христианский эксперт, выбери лучшую христианскую песню из кандидатов для запроса пользователя.
 
-Примеры правильных ответов:
-
+Пример:
 Запрос: "Хочу спокойную песню для вечера"
-Кандидаты:
-1. Название: Тихая ночь
-   Текст: Спокойная мелодия для вечернего времени...
-   Настроение: спокойная, умиротворённая
-2. Название: Утренняя радость
-   Текст: Энергичная песня для начала дня...
-   Настроение: энергичная, радостная
+1. Тихая ночь (спокойная, умиротворённая)
+2. Утренняя радость (энергичная, радостная)
 ВЫБОР: 1
-ОБЪЯСНЕНИЕ: Песня "Тихая ночь" идеально подходит для вечера, так как она спокойная и создаёт атмосферу умиротворения, что соответствует запросу пользователя.
+ОБЪЯСНЕНИЕ: "Тихая ночь" подходит для вечера - спокойная и умиротворённая.
 
----
-
-Теперь выбери для этого запроса:
-"{user_query}"
-
-Вот несколько подходящих христианских песен, найденных по смыслу:
+Запрос: "{user_query}"
+Кандидаты:
 {candidates_text}
 
-Твоя задача:
-1. Выбери ОДНУ лучшую христианскую песню, которая наиболее точно соответствует запросу пользователя
-2. Объясни, почему именно эта христианская песня подходит лучше всего
-
-Ответь в следующем формате:
-ВЫБОР: [номер песни]
-ОБЪЯСНЕНИЕ: [подробное объяснение, почему эта христианская песня лучше всего подходит запросу пользователя]"""
+Выбери ОДНУ песню, наиболее соответствующую запросу, и объясни почему."""
         
         try:
             headers = {
