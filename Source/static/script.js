@@ -312,10 +312,10 @@ function createCandidateCard(song, index, selectedSong) {
         ? `<button class="toggle-lyrics-btn" onclick="toggleLyrics(this)">${hasFullLyrics ? '📝 Показать полный текст' : '📝 Показать текст'}</button>`
         : '';
     
-    // Визуализация соответствия
+    // Визуализация соответствия: приоритет у относительного процента (лучший = 100%), затем гибрид, затем L2
     let similarityHTML = '';
-    if (song.similarity_distance !== undefined) {
-        const similarity = Math.max(0, Math.min(100, (1 - Math.min(song.similarity_distance, 2) / 2) * 100));
+    if (song.match_percent !== undefined) {
+        const similarity = Math.max(0, Math.min(100, song.match_percent));
         similarityHTML = `
             <div class="similarity-container">
                 <div class="similarity-label">Соответствие: ${similarity.toFixed(1)}%</div>
@@ -325,10 +325,20 @@ function createCandidateCard(song, index, selectedSong) {
             </div>
         `;
     } else if (song.hybrid_score !== undefined) {
-        const similarity = song.hybrid_score * 100;
+        const similarity = Math.max(0, Math.min(100, song.hybrid_score * 100));
         similarityHTML = `
             <div class="similarity-container">
-                <div class="similarity-label">Релевантность: ${similarity.toFixed(1)}%</div>
+                <div class="similarity-label">Соответствие: ${similarity.toFixed(1)}%</div>
+                <div class="similarity-bar-container">
+                    <div class="similarity-bar" style="width: ${similarity}%"></div>
+                </div>
+            </div>
+        `;
+    } else if (song.similarity_distance !== undefined) {
+        const similarity = Math.max(0, Math.min(100, (1 - Math.min(song.similarity_distance, 2) / 2) * 100));
+        similarityHTML = `
+            <div class="similarity-container">
+                <div class="similarity-label">Соответствие: ${similarity.toFixed(1)}%</div>
                 <div class="similarity-bar-container">
                     <div class="similarity-bar" style="width: ${similarity}%"></div>
                 </div>

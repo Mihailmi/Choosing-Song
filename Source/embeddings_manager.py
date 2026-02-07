@@ -166,38 +166,52 @@ class EmbeddingsManager:
     def save_index(self, index_path: str, metadata_path: str):
         """
         Сохраняет индекс и метаданные на диск.
-        
-        Args:
-            index_path: Путь для сохранения FAISS индекса
-            metadata_path: Путь для сохранения метаданных
+        В метаданные записывается модель эмбеддингов, чтобы при смене модели
+        можно было обнаружить несовпадение и пересобрать индекс.
         """
         if self.index is None:
             raise ValueError("Индекс не создан! Сначала вызовите build_index()")
         
-        # Сохранение индекса
         faiss.write_index(self.index, index_path)
         
-        # Сохранение метаданных
+        payload = {
+            "_index_info": {
+                "embed_model": self.embed_model,
+                "dimension": self.dimension,
+            },
+            "vectors": self.vectors_metadata,
+        }
         with open(metadata_path, 'w', encoding='utf-8') as f:
-            json.dump(self.vectors_metadata, f, ensure_ascii=False, indent=2)
+            json.dump(payload, f, ensure_ascii=False, indent=2)
         
         print(f"Индекс сохранён: {index_path}")
-        print(f"Метаданные сохранены: {metadata_path}")
+        print(f"Метаданные сохранены: {metadata_path} (модель: {self.embed_model})")
     
     def load_index(self, index_path: str, metadata_path: str):
         """
         Загружает индекс и метаданные с диска.
-        
-        Args:
-            index_path: Путь к FAISS индексу
-            metadata_path: Путь к метаданным
+        Если индекс был собран другой моделью эмбеддингов — выводит предупреждение:
+        для корректного поиска нужно пересобрать индекс (prepare_embeddings.py).
         """
-        # Загрузка индекса
         self.index = faiss.read_index(index_path)
         
-        # Загрузка метаданных
         with open(metadata_path, 'r', encoding='utf-8') as f:
-            self.vectors_metadata = json.load(f)
+            data = json.load(f)
+        
+        # Поддержка старого формата (только список) и нового (с _index_info)
+        if isinstance(data, list):
+            self.vectors_metadata = data
+        else:
+            self.vectors_metadata = data.get("vectors", data)
+            info = data.get("_index_info", {})
+            saved_model = info.get("embed_model")
+            if saved_model and saved_model != self.embed_model:
+                print(
+                    f"⚠️  Внимание: индекс собран моделью '{saved_model}', "
+                    f"а запросы делаются моделью '{self.embed_model}'. "
+                    "Для корректного семантического поиска пересоберите индекс: "
+                    "запустите prepare_embeddings.py"
+                )
         
         print(f"Индекс загружен: {self.index.ntotal} векторов")
     

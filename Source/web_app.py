@@ -38,8 +38,8 @@ limiter = Limiter(
 class SearchRequest(BaseModel):
     query: str
     use_hybrid: bool = True
-    semantic_weight: float = 0.7
-    keyword_weight: float = 0.3
+    semantic_weight: float = 0.55
+    keyword_weight: float = 0.45
     enhance_query: bool = True  # Предобработка запроса через AI для улучшения векторного поиска
     
     @field_validator('query')
@@ -173,15 +173,17 @@ def search_songs():
                 search_query = search_request.query
         
         # Поиск кандидатов (hybrid или обычный) с улучшенным запросом
+        # k=12 — больше кандидатов, чтобы тематические песни (напр. про осень) попадали в выбор
+        k_candidates = 12
         if search_request.use_hybrid and hasattr(search_engine, 'hybrid_search'):
             candidates = search_engine.hybrid_search(
                 search_query, 
-                k=5,
+                k=k_candidates,
                 semantic_weight=search_request.semantic_weight,
                 keyword_weight=search_request.keyword_weight
             )
         else:
-            candidates = search_engine.search(search_query, k=5)
+            candidates = search_engine.search(search_query, k=k_candidates)
         
         # Отладка: выводим структуру данных кандидатов
         print(f"\n🔍 Найдено {len(candidates)} кандидатов:")
