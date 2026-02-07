@@ -53,13 +53,10 @@ class SongSearch:
                 song_data["similarity_distance"] = float(distance)
                 results.append(song_data)
         
-        # Нормализуем процент соответствия относительно лучшего результата (лучший = 100%)
-        if results:
-            d_min = min(r["similarity_distance"] for r in results)
-            d_max = max(r["similarity_distance"] for r in results)
-            span = (d_max - d_min) + 1e-9
-            for r in results:
-                r["match_percent"] = max(0, min(100, 100 * (1 - (r["similarity_distance"] - d_min) / span)))
+        # Реальный процент соответствия по L2: 0% при distance=2, 100% при distance=0 (норм. векторы)
+        for r in results:
+            d = r["similarity_distance"]
+            r["match_percent"] = max(0.0, min(100.0, 100.0 * (1.0 - min(d, 2.0) / 2.0)))
         
         return results
     
@@ -197,11 +194,13 @@ class SongSearch:
         for song in semantic_results:
             song_id = song.get("id", id(song))
             distance = song.get("similarity_distance", 1.0)
-            semantic_score = 1.0 / (1.0 + distance)
+            raw_sem = 1.0 / (1.0 + distance)
             combined_scores[song_id] = {
                 "song": song,
-                "semantic_score": semantic_score,
-                "keyword_score": 0.0
+                "semantic_score": raw_sem,
+                "keyword_score": 0.0,
+                "raw_semantic": raw_sem,
+                "raw_keyword": 0.0,
             }
         
         for song in keyword_results:
@@ -209,12 +208,14 @@ class SongSearch:
             kw = song.get("keyword_score", 0.0)
             if song_id in combined_scores:
                 combined_scores[song_id]["keyword_score"] = kw
+                combined_scores[song_id]["raw_keyword"] = kw
             else:
-                # Песня только из keyword (напр. про осень) — добавляем с нулём по семантике
                 combined_scores[song_id] = {
                     "song": song,
                     "semantic_score": 0.0,
-                    "keyword_score": kw
+                    "keyword_score": kw,
+                    "raw_semantic": 0.0,
+                    "raw_keyword": kw,
                 }
         
         if combined_scores:
@@ -231,7 +232,6 @@ class SongSearch:
         for song_id, data in combined_scores.items():
             sem = data["semantic_score"]
             kw = data["keyword_score"]
-            # Бонус за тематическое совпадение: песни с словами запроса поднимаем выше
             theme_bonus = 0.2 * kw if kw > 0 else 0.0
             final_score = (semantic_weight * sem + keyword_weight * kw) + theme_bonus
             song = data["song"].copy()
@@ -241,10 +241,18 @@ class SongSearch:
         
         final_results.sort(reverse=True, key=lambda x: x[0])
         output = [song for _, song in final_results[:k]]
-        if output:
-            best = output[0].get("hybrid_score") or 0
-            if best > 0:
-                for song in output:
-                    song["match_percent"] = min(100, 100 * (song.get("hybrid_score") or 0) / best)
+        # Реальный процент по сырым оценкам (без нормировки по максимуму), чтобы не было 100% у первой
+        for song in output:
+            # Находим сырые данные по song_id в combined_scores
+            sid = song.get("id", id(song))
+            if sid in combined_scores:
+                d = combined_scores[sid]
+                raw_sem = d["raw_semantic"]
+                raw_kw = d["raw_keyword"]
+                theme_bonus_raw = 0.2 * raw_kw if raw_kw > 0 else 0.0
+                raw_combined = (semantic_weight * raw_sem + keyword_weight * raw_kw) + theme_bonus_raw
+                song["match_percent"] = max(0.0, min(100.0, 100.0 * raw_combined))
+            else:
+                song["match_percent"] = max(0.0, min(100.0, 100.0 * (song.get("hybrid_score") or 0)))
         return output
 

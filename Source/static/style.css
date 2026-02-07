@@ -531,6 +531,58 @@ header h1 {
     border-color: var(--primary-color);
 }
 
+/* Строка действий в карточке: слева кнопка текста, справа иконка «в приложении» */
+.card-actions-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 12px;
+}
+.card-actions-row .toggle-lyrics-btn {
+    flex: 1;
+    margin-top: 0;
+    min-width: 0;
+}
+.card-actions-row .open-in-app-btn {
+    margin-top: 0;
+    flex-shrink: 0;
+}
+
+/* Ссылка «Открыть в приложении» */
+.open-in-app-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    text-decoration: none;
+    color: var(--text-secondary);
+    background: rgba(99, 102, 241, 0.15);
+    border: 1px solid var(--border-color);
+    transition: all 0.2s ease;
+}
+.open-in-app-btn:hover {
+    background: rgba(99, 102, 241, 0.25);
+    color: var(--primary-color);
+    border-color: rgba(99, 102, 241, 0.4);
+}
+/* Только иконка (без подписи) */
+.open-in-app-btn.icon-only {
+    padding: 8px 10px;
+    min-width: 40px;
+    min-height: 40px;
+    font-size: 1.2rem;
+}
+.open-in-app-btn.icon-only:hover {
+    transform: scale(1.05);
+}
+.selected-song .open-in-app-btn.icon-only {
+    margin-top: 10px;
+}
+
 .selected-song {
     background: var(--bg-color);
     border: 2px solid var(--selected-color);

@@ -15,6 +15,9 @@ const closeHistoryBtn = document.getElementById('closeHistoryBtn');
 const historyList = document.getElementById('historyList');
 const clearHistoryBtn = document.getElementById('clearHistoryBtn');
 
+// Базовый URL приложения с песнями (открытие в новой вкладке)
+const LYRICS_APP_BASE_URL = 'https://lyrics-app.onrender.com';
+
 // Элементы модального окна подтверждения
 // Элементы модального окна подтверждения
 const confirmModal = document.getElementById('confirmModal');
@@ -307,9 +310,15 @@ function createCandidateCard(song, index, selectedSong) {
         lyricsPreview = `<div class="lyrics-preview" style="color: var(--text-muted); font-style: italic;">Текст песни недоступен</div>`;
     }
     
-    // Всегда показываем кнопку, если есть текст
+    // Строка действий: слева — «Показать текст», справа — иконка «Открыть в приложении»
     const toggleButtonHTML = hasLyrics 
         ? `<button class="toggle-lyrics-btn" onclick="toggleLyrics(this)">${hasFullLyrics ? '📝 Показать полный текст' : '📝 Показать текст'}</button>`
+        : '';
+    const openInAppHTML = song.id
+        ? `<a href="${LYRICS_APP_BASE_URL}/songs/view/${encodeURIComponent(song.id)}" target="_blank" rel="noopener noreferrer" class="open-in-app-btn icon-only" title="Открыть в приложении" aria-label="Открыть в приложении">🔗</a>`
+        : '';
+    const cardActionsHTML = (toggleButtonHTML || openInAppHTML)
+        ? `<div class="card-actions-row">${toggleButtonHTML}${openInAppHTML}</div>`
         : '';
     
     // Визуализация соответствия: приоритет у относительного процента (лучший = 100%), затем гибрид, затем L2
@@ -353,14 +362,14 @@ function createCandidateCard(song, index, selectedSong) {
         ${moodHTML}
         ${lyricsPreview}
         ${lyricsHTML}
-        ${toggleButtonHTML}
+        ${cardActionsHTML}
     `;
     
-    // Добавляем обработчик клика на карточку (кроме кнопки)
+    // Добавляем обработчик клика на карточку (кроме кнопки и ссылки в приложение)
     if (hasLyrics) {
         card.addEventListener('click', (e) => {
-            // Не обрабатываем клик, если кликнули на кнопку
-            if (e.target.classList.contains('toggle-lyrics-btn') || e.target.closest('.toggle-lyrics-btn')) {
+            if (e.target.classList.contains('toggle-lyrics-btn') || e.target.closest('.toggle-lyrics-btn') ||
+                e.target.classList.contains('open-in-app-btn') || e.target.closest('.open-in-app-btn')) {
                 return;
             }
             // Ищем кнопку в карточке и вызываем её клик
@@ -447,11 +456,16 @@ function createSelectedSongHTML(song) {
         }
     }
     
+    const openInAppHTML = song.id
+        ? `<a href="${LYRICS_APP_BASE_URL}/songs/view/${encodeURIComponent(song.id)}" target="_blank" rel="noopener noreferrer" class="open-in-app-btn icon-only" title="Открыть в приложении" aria-label="Открыть в приложении">🔗</a>`
+        : '';
+    
     return `
         <h3>🎵 ${escapeHtml(title)}${numberText ? ` <span class="song-number-inline">(${numberText})</span>` : ''}</h3>
         ${themesHTML}
         ${moodHTML}
         ${lyricsHTML}
+        ${openInAppHTML}
     `;
 }
 
