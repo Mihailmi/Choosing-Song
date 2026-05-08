@@ -385,7 +385,7 @@ class SongSelector:
                     
                     if response.status_code == 200:
                         result = response.json()
-                        response_text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+                        response_text = self._extract_response_text(result)
                         
                         # Парсим JSON ответ
                         try:
@@ -544,7 +544,7 @@ class SongSelector:
             
             # Пытаемся выполнить запрос с автоматическим переключением моделей
             api_result = self._try_request_with_fallback(payload, headers)
-            response_text = api_result["candidates"][0]["content"]["parts"][0]["text"]
+            response_text = self._extract_response_text(api_result)
             
             # Пытаемся распарсить JSON ответ
             try:
@@ -618,6 +618,36 @@ class SongSelector:
                 return num
         
         return None
+
+    def _extract_response_text(self, api_result: Dict[str, Any]) -> str:
+        """
+        Безопасно извлекает текст из ответа Gemini в разных форматах.
+        """
+        candidates = api_result.get("candidates") or []
+        if not candidates:
+            feedback = api_result.get("promptFeedback", {})
+            block_reason = feedback.get("blockReason")
+            if block_reason:
+                raise Exception(f"Ответ заблокирован: {block_reason}")
+            raise Exception("Пустой ответ модели: нет candidates")
+
+        candidate = candidates[0] or {}
+        content = candidate.get("content") or {}
+        parts = content.get("parts") or []
+
+        if parts:
+            for part in parts:
+                if isinstance(part, dict):
+                    text = part.get("text")
+                    if isinstance(text, str) and text.strip():
+                        return text.strip()
+
+        content_text = content.get("text")
+        if isinstance(content_text, str) and content_text.strip():
+            return content_text.strip()
+
+        finish_reason = candidate.get("finishReason", "unknown")
+        raise Exception(f"Не удалось извлечь текст ответа (finishReason={finish_reason})")
     
     async def choose_best_async(
         self,
@@ -704,7 +734,7 @@ class SongSelector:
                     raise Exception(f"API error {response.status}: {error_text}")
                 
                 api_result = await response.json()
-                response_text = api_result["candidates"][0]["content"]["parts"][0]["text"]
+                response_text = self._extract_response_text(api_result)
                 
                 # Парсинг JSON
                 try:
