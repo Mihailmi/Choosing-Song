@@ -5,6 +5,7 @@
 
 import numpy as np
 import re
+import hashlib
 from typing import List, Dict, Any
 from collections import Counter
 from embeddings_manager import EmbeddingsManager
@@ -129,6 +130,19 @@ class SongSearch:
                 text_parts.extend([m.lower() for m in mood])
             
             self.song_texts.append(" ".join(text_parts))
+
+    def _stable_song_id(self, song: Dict[str, Any]) -> str:
+        """Возвращает стабильный ID песни, даже если исходного id нет."""
+        explicit_id = song.get("id") or song.get("_id")
+        if explicit_id:
+            return str(explicit_id)
+
+        title = str(song.get("title", ""))
+        lyrics = song.get("lyrics", "")
+        if isinstance(lyrics, list):
+            lyrics = " ".join(lyrics)
+        base = f"{title}|{str(lyrics)[:500]}"
+        return hashlib.md5(base.encode("utf-8")).hexdigest()
     
     def _tokenize(self, text: str) -> List[str]:
         """Простая токенизация текста."""
@@ -192,7 +206,7 @@ class SongSearch:
         combined_scores = {}
         
         for song in semantic_results:
-            song_id = song.get("id", id(song))
+            song_id = self._stable_song_id(song)
             distance = song.get("similarity_distance", 1.0)
             raw_sem = 1.0 / (1.0 + distance)
             combined_scores[song_id] = {
@@ -204,7 +218,7 @@ class SongSearch:
             }
         
         for song in keyword_results:
-            song_id = song.get("id", id(song))
+            song_id = self._stable_song_id(song)
             kw = song.get("keyword_score", 0.0)
             if song_id in combined_scores:
                 combined_scores[song_id]["keyword_score"] = kw
@@ -244,7 +258,7 @@ class SongSearch:
         # Реальный процент по сырым оценкам (без нормировки по максимуму), чтобы не было 100% у первой
         for song in output:
             # Находим сырые данные по song_id в combined_scores
-            sid = song.get("id", id(song))
+            sid = self._stable_song_id(song)
             if sid in combined_scores:
                 d = combined_scores[sid]
                 raw_sem = d["raw_semantic"]

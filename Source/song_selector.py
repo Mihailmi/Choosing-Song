@@ -15,7 +15,15 @@ from typing import List, Dict, Any
 class SongSelector:
     """Класс для выбора лучшей песни из кандидатов через LLM."""
     
-    def __init__(self, api_key: str = None, model: str = "gemini-2.5-flash-lite", fallback_models: List[str] = None, max_retries: int = 2):
+    def __init__(
+        self,
+        api_key: str = None,
+        model: str = "gemini-2.5-flash-lite",
+        fallback_models: List[str] = None,
+        max_retries: int = 2,
+        request_timeout: int = 20,
+        allow_blocking_retries: bool = True
+    ):
         """
         Инициализация селектора песен.
         
@@ -31,6 +39,8 @@ class SongSelector:
         
         self.model = model
         self.max_retries = max_retries
+        self.request_timeout = request_timeout
+        self.allow_blocking_retries = allow_blocking_retries
         # Резервные модели по умолчанию (от быстрых к более мощным)
         # Убраны недоступные модели: gemini-1.5-flash, gemini-1.5-pro (404 ошибка)
         if fallback_models is None:
@@ -197,7 +207,12 @@ class SongSelector:
         for model_name in models_to_try:
             try:
                 api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
-                response = requests.post(api_url, headers=headers, json=payload)
+                response = requests.post(
+                    api_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=self.request_timeout
+                )
                 
                 if response.status_code == 200:
                     # Успешный запрос - сохраняем модель для следующего запроса
@@ -243,7 +258,7 @@ class SongSelector:
             raise Exception(error_msg)
         
         # Если все модели перегружены, делаем повторные попытки
-        if overloaded_models:
+        if overloaded_models and self.allow_blocking_retries and self.max_retries > 0:
             print(f"  ⚠️  Все модели перегружены, делаем повторные попытки...")
             for retry in range(self.max_retries):
                 wait_time = (retry + 1) * 2  # Экспоненциальная задержка: 2, 4, 6 секунд
@@ -254,7 +269,12 @@ class SongSelector:
                 for model_name, _ in overloaded_models:
                     try:
                         api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
-                        response = requests.post(api_url, headers=headers, json=payload)
+                        response = requests.post(
+                            api_url,
+                            headers=headers,
+                            json=payload,
+                            timeout=self.request_timeout
+                        )
                         
                         if response.status_code == 200:
                             self.last_successful_model = model_name
@@ -756,4 +776,3 @@ class SongSelector:
                     processed_results.append(result)
             
             return processed_results
-

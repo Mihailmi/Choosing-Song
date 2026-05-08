@@ -7,6 +7,7 @@ import os
 import sys
 import json
 import time
+from collections import deque
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify
 from flask_limiter import Limiter
@@ -31,7 +32,7 @@ limiter = Limiter(
     app=app,
     key_func=get_remote_address,
     default_limits=["100 per hour"],
-    storage_uri="memory://"
+    storage_uri=os.getenv("RATELIMIT_STORAGE_URI", "memory://")
 )
 
 # Валидация входных данных
@@ -76,7 +77,7 @@ search_engine = None
 selector = None
 
 # Хранилище feedback (в продакшене использовать БД)
-feedback_storage = []
+feedback_storage = deque(maxlen=1000)
 
 
 def init_system():
@@ -106,7 +107,10 @@ def init_system():
     embeddings_manager.load_index(str(index_path), str(metadata_path))
     
     search_engine = SongSearch(embeddings_manager)
-    selector = SongSelector(api_key=google_api_key)
+    selector = SongSelector(
+        api_key=google_api_key,
+        allow_blocking_retries=False
+    )
     
     print("✅ Система инициализирована и готова к работе!")
 
@@ -303,10 +307,6 @@ def submit_feedback():
         }
         feedback_storage.append(feedback_entry)
         
-        # Ограничиваем размер хранилища
-        if len(feedback_storage) > 1000:
-            feedback_storage.pop(0)
-        
         return jsonify({
             'status': 'success',
             'message': 'Feedback сохранён'
@@ -337,7 +337,8 @@ def get_feedback_stats():
 # Это выполнится при запуске через gunicorn, но не при тестах
 if os.getenv('SKIP_INIT') != 'true':
     try:
-        init_system()
+        if search_engine is None or selector is None:
+            init_system()
     except Exception as e:
         print(f"⚠️ Предупреждение: Не удалось инициализировать систему при импорте: {e}")
         print("Система будет инициализирована при первом запросе или при запуске через __main__")
@@ -346,7 +347,8 @@ if os.getenv('SKIP_INIT') != 'true':
 if __name__ == '__main__':
     try:
         print("🚀 Запуск веб-приложения...")
-        init_system()
+        if search_engine is None or selector is None:
+            init_system()
         # Используем переменную окружения PORT для совместимости с облачными платформами
         port = int(os.getenv('PORT', 5000))
         debug = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'

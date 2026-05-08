@@ -33,6 +33,7 @@ class EmbeddingsManager:
         self.embed_model = "models/gemini-embedding-001"
         self.api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent"
         self.dimension = 768  # outputDimensionality для совместимости с индексом
+        self.request_timeout = int(os.getenv("EMBEDDING_REQUEST_TIMEOUT", "30"))
         
         self.index = None
         self.vectors_metadata = []
@@ -112,7 +113,12 @@ class EmbeddingsManager:
                     "content": {"parts": [{"text": text}]},
                     "outputDimensionality": self.dimension,
                 }
-                response = requests.post(self.api_url, headers=headers, json=payload)
+                response = requests.post(
+                    self.api_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=self.request_timeout
+                )
                 if response.status_code != 200:
                     error_detail = response.text
                     raise Exception(f"{response.status_code} {error_detail}")
@@ -242,7 +248,12 @@ class EmbeddingsManager:
             "content": {"parts": [{"text": query}]},
             "outputDimensionality": self.dimension,
         }
-        response = requests.post(self.api_url, headers=headers, json=payload)
+        response = requests.post(
+            self.api_url,
+            headers=headers,
+            json=payload,
+            timeout=self.request_timeout
+        )
         if response.status_code != 200:
             error_detail = response.text
             raise Exception(f"Embedding API error {response.status_code}: {error_detail}")
